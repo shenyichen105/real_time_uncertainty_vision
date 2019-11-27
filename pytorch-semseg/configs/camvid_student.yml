@@ -1,0 +1,41 @@
+model:
+    arch: segnet
+    #add_dropout: True
+    is_student: True
+    #dropout_rate: 0.5
+data:
+    dataset: camvid
+    train_split: train
+    val_split: val
+    img_rows: 360
+    img_cols: 480
+    path: /home/eddie/dataset/CamVid
+    ignore_index: [11]
+    
+training:
+    train_iters: 60000
+    teacher_model_path: runs/camvid/86456/segnet_camvid_best_model.pkl
+    teacher_run_folder: runs/camvid/86456
+    n_sample: 5
+    gt_ratio: 0.1
+    batch_size: 4
+    val_interval: 1000
+    n_workers: 8
+    print_interval: 50
+    optimizer:
+        name: 'adam'
+        lr: 1.0e-3
+        weight_decay: 0.0005
+        betas: [0.9, 0.999]
+    lr_schedule:
+        name: 'multi_step'
+        milestones: [50000, 60000]
+        gamma: 1
+    loss:
+        name: 'cross_entropy'
+        size_average: True
+        weight: [0.2595, 0.1826, 4.5640, 0.1417, 0.9051, 0.3826, 9.6446, 1.8418, 0.6823, 6.2478, 7.3614]
+    soft_loss:
+        name: "nll_guassian_loss"
+    resume: camvid_segnet_best_model.pkl
+    visdom: False
