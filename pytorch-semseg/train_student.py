@@ -22,6 +22,11 @@ from ptsemseg.utils import convert_state_dict
 
 from tensorboardX import SummaryWriter
 
+from functools import partial
+import pickle
+pickle.load = partial(pickle.load, encoding="latin1")
+pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
+
 def enable_dropout(m):
     if type(m) == torch.nn.Dropout:
         m.train()
@@ -182,25 +187,25 @@ def train(teacher_cfg, student_cfg, writer, logger):
         for (images, labels) in trainloader:
             i += 1
             start_ts = time.time()
-            scheduler.step()
             student_model.train()
             batch_size = images.size()[0]
             images = images.to(device)
             gt_labels = labels.to(device)
-
-            soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
+            with torch.no_grad():
+                soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
             optimizer.zero_grad()
             pred_mean, pred_logvar = student_model(images) 
             
-            pred_mean = expand_output(pred_mean)
-            pred_logvar = expand_output(pred_logvar)
+            pred_mean = expand_output(pred_mean, n_sample=n_sample)
+            pred_logvar = expand_output(pred_logvar, n_sample=n_sample)
 
-            nll_loss = soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_labels, gt_target=expand_output(gt_labels), ignore_index=ignore_index[0])
+            nll_loss = soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_labels, gt_target=expand_output(gt_labels, n_sample=n_sample), ignore_index=ignore_index[0])
             gt_loss = loss_fn(input=pred_mean[:batch_size], target=gt_labels, ignore_index=ignore_index[0])
             
             loss = nll_loss + gt_ratio * gt_loss
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             time_meter.update(time.time() - start_ts)
 
@@ -281,7 +286,6 @@ if __name__ == "__main__":
         type=str,
         help="config file for student model",
     )
-
     args = parser.parse_args()
     with open(args.student_cfg) as fp:
         student_cfg = yaml.load(fp)

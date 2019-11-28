@@ -12,7 +12,7 @@ data:
     ignore_index: [11]
     
 training:
-    train_iters: 20000
+    train_iters: 40000
     batch_size: 4
     val_interval: 1000
     n_workers: 8

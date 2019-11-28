@@ -14,9 +14,9 @@ data:
     
 training:
     train_iters: 60000
-    teacher_model_path: runs/camvid/86456/segnet_camvid_best_model.pkl
-    teacher_run_folder: runs/camvid/86456
-    n_sample: 5
+    teacher_model_path: runs/camvid/12983/segnet_camvid_best_model.pkl
+    teacher_run_folder: runs/camvid/12983
+    n_sample: 7
     gt_ratio: 0.1
     batch_size: 4
     val_interval: 1000
@@ -28,14 +28,15 @@ training:
         weight_decay: 0.0005
         betas: [0.9, 0.999]
     lr_schedule:
-        name: 'multi_step'
-        milestones: [50000, 60000]
-        gamma: 1
+        name: 'step_lr'
+        step_size: 100
+        gamma: 0.95
     loss:
         name: 'cross_entropy'
         size_average: True
         weight: [0.2595, 0.1826, 4.5640, 0.1417, 0.9051, 0.3826, 9.6446, 1.8418, 0.6823, 6.2478, 7.3614]
     soft_loss:
         name: "nll_guassian_loss"
+        weight: [0.2595, 0.1826, 4.5640, 0.1417, 0.9051, 0.3826, 9.6446, 1.8418, 0.6823, 6.2478, 7.3614]
     resume: camvid_segnet_best_model.pkl
     visdom: False

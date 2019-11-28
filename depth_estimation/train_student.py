@@ -193,16 +193,23 @@ def main():
 def generate_teacher_predictions(model_teacher, input, n_samples):
     #naive implementation, can be slow
     model_teacher.apply(utils_student.enable_dropout) #enable dropout in the inference
-    input_dropout = []
     pred_dropout = []
     for i in range(n_samples):
         pred = model_teacher(input)
         pred_dropout.append(pred)
-        input_dropout.append(input)
-    input_dropout = torch.cat(input_dropout, 0).detach()
     pred_dropout = torch.cat(pred_dropout, 0).detach()
     model_teacher.apply(utils_student.disable_dropout)
-    return input_dropout, pred_dropout
+    return pred_dropout
+
+def expand_output(output, n_sample=5):
+    assert n_sample > 0
+    #copy the output n_sample times
+    #return an output of [n_sample*batch_size, w, h]
+    all_output = []
+    for i in range(n_sample):
+        all_output.append(output.clone())
+    all_output = torch.cat(all_output).to(output.device)
+    return all_output
 
 def train_student(train_loader, model_student, model_teacher, criterion, optimizer, epoch, n_samples=5, gt_loss_ratio=0.1):
     average_meter = AverageMeterStudent()
@@ -219,8 +226,11 @@ def train_student(train_loader, model_student, model_teacher, criterion, optimiz
         # compute pred
         end = time.time()
         with torch.no_grad():
-            input_dropout, pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
-        pred_mu, pred_logvar = model_student(input_dropout)
+            pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
+        pred_mu, pred_logvar = model_student(input)
+        pred_mu = expand_output(pred_mu, n_sample=n_samples)
+        pred_logvar = expand_output(pred_logvar, n_sample=n_samples)
+        
         pred_mu_gt = pred_mu[:input.size()[0],:,:,:]
         pred_logvar_gt = pred_logvar[:input.size()[0],:,:,:]
         

@@ -21,8 +21,8 @@ def parse_command():
 
     import argparse
     parser = argparse.ArgumentParser(description='Sparse-to-Dense')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet50', choices=model_names,
-                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet50)')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18', choices=model_names,
+                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet18)')
     parser.add_argument('--datapath', metavar='DATA', default='~/dataset',
                         help='dataset folder path (default: ~/dataset)')
     parser.add_argument('--decoder', '-d', metavar='DECODER', default='upproj', choices=decoder_names,
@@ -31,8 +31,8 @@ def parse_command():
                         help='number of data loading workers (default: 10)')
     parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
-    parser.add_argument('-b', '--batch-size', default=6, type=int, help='mini-batch size (default: 8)')
-    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
+    parser.add_argument('-b', '--batch-size', default=4, type=int, help='mini-batch size (default: 8)')
+    parser.add_argument('--lr', '--learning-rate', default=0.005, type=float,
                         metavar='LR', help='initial learning rate (default 0.005)')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
@@ -49,9 +49,9 @@ def parse_command():
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', type=str, default='',
                         help='evaluate model on validation set')
-    parser.add_argument('-n', '--n_sample', default=5, type=int,
+    parser.add_argument('-n', '--n_sample', default=7, type=int,
                         help='number of teachers predictions to sample per input')
-    parser.add_argument('--gr', '--ratio_gt',default=0.3, type=float,
+    parser.add_argument('--gr', '--ratio_gt',default=0.05, type=float,
                         help='ratio of ground truth nll loss in the total student loss')
     parser.set_defaults(pretrained=True)
     args = parser.parse_known_args()[0]
@@ -72,7 +72,7 @@ def adjust_learning_rate(optimizer, epoch, lr_init, warm_up=5):
     """Sets the learning rate to the initial LR decayed by 10 every 6 epochs"""
     stages = [12, 25]
     if epoch == 1:
-        lr = 0.0002
+        lr = 0.00005
     elif epoch < warm_up:
         lr = lr_init  * float(epoch)/warm_up
     elif epoch <= stages[0] and epoch >=warm_up:
