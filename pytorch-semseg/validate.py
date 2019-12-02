@@ -12,6 +12,10 @@ from ptsemseg.metrics import runningScore
 from ptsemseg.utils import convert_state_dict
 
 torch.backends.cudnn.benchmark = True
+import pickle
+from functools import partial
+pickle.load = partial(pickle.load, encoding="latin1")
+pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 
 
 def validate(cfg, args):

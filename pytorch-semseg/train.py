@@ -20,6 +20,10 @@ from ptsemseg.schedulers import get_scheduler
 from ptsemseg.optimizers import get_optimizer
 
 from tensorboardX import SummaryWriter
+import pickle
+from functools import partial
+pickle.load = partial(pickle.load, encoding="latin1")
+pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 
 
 def train(cfg, writer, logger):
