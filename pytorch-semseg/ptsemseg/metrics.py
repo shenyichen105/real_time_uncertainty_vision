@@ -51,6 +51,81 @@ class runningScore(object):
     def reset(self):
         self.confusion_matrix = np.zeros((self.n_classes, self.n_classes))
 
+class runningUncertaintyScore(object):
+    def __init__(self, n_classes, ignore_index=-1, name="", scale_uncertainty=True):
+        self.n_classes = n_classes
+        self.ignore_index = ignore_index
+        self.scale_uncertainty = scale_uncertainty
+        self.name = name
+        self.ece = 0
+        self.count  = 0
+
+    def get_ause(self, label_true, label_pred, uncertainty, softmax_output):
+        """
+        get ause based on brier score
+        """
+        raise NotImplementedError("not implemented yet")
+
+    def _calc_acc(self, y_true, y_pred):
+        y_true = y_true.flatten()
+        y_pred = y_pred.flatten()
+        return (y_true == y_pred).sum()/float(y_pred.shape[0])
+
+    def get_caliberation_errors(self, label_true, label_pred, uncertainty, n_bins=15):
+        """
+        get expected caliberation error
+        """
+        if self.scale_uncertainty :
+            #min max scale uncertainty 
+            uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
+        bins = np.linspace(0,1.01, n_bins+1)
+        inds = np.digitize(uncertainty, bins)
+        calib_error = 0
+        
+        for i in range(1, n_bins+1):
+            subset = (inds == i)
+            if not np.any(subset):
+                continue
+            true_sub = label_true[subset]
+            pred_sub = label_pred[subset]
+            uncertainty_sub = uncertainty[subset]
+            acc = self._calc_acc(true_sub, pred_sub)
+            calib_error += np.abs(acc - (1-uncertainty_sub).mean()) * float(uncertainty_sub.shape[0]) 
+        
+        ece = calib_error/float(uncertainty.shape[0])
+        return ece
+
+    def update(self, label_trues, label_preds, softmax_outputs, uncertainties):
+        for lt, lp, uc, sm in zip(label_trues, label_preds, uncertainties, softmax_outputs):
+            lt = lt.flatten()
+            lp = lp.flatten()
+            uc = uc.flatten()
+            idx = (lt != self.ignore_index) & (lt < self.n_classes)
+            lt  = lt[idx]
+            lp = lp[idx]
+            uc = uc[idx]
+
+            self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, uc))/float(self.count + 1)
+            self.count+=1
+
+    def get_scores(self):
+        """Returns accuracy score evaluation result.
+            - overall accuracy
+            - mean accuracy
+            - mean IU
+            - fwavacc
+        """
+        ece = self.ece
+
+        return (
+            {
+                "Overall ECE using uncertainty method:" + self.name + ": \t": ece,
+            }
+        )
+
+    def reset(self):
+        self.ece = 0
+
 
 class averageMeter(object):
     """Computes and stores the average and current value"""

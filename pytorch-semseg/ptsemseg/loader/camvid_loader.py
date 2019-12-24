@@ -116,7 +116,6 @@ class camvidLoader(data.Dataset):
         rgb[:, :, 0] = r / 255.0
         rgb[:, :, 1] = g / 255.0
         rgb[:, :, 2] = b / 255.0
-        print(rgb)
         return rgb
 
 

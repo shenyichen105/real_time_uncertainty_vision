@@ -4,7 +4,7 @@ from ptsemseg.models.utils import segnetDown2, segnetDown3, segnetUp2, segnetUp3
 
 
 class segnet(nn.Module):
-    def __init__(self, n_classes=21, in_channels=3, is_unpooling=True, is_student=False, add_dropout=False, dropout_rate=0.1):
+    def __init__(self, n_classes=21, in_channels=3, is_unpooling=True, is_student=False, add_dropout=False, dropout_rate=0.1, no_branch_in_last_conv=False):
         super(segnet, self).__init__()
 
         self.in_channels = in_channels
@@ -12,6 +12,8 @@ class segnet(nn.Module):
         self.add_dropout = add_dropout
         self.is_student = is_student
         self.dropout_rate = dropout_rate
+        #use one conv at the last upsampling layer with double the # of channels to predict mean and logvar
+        self.no_branch_in_last_conv = no_branch_in_last_conv
 
         self.down1 = segnetDown2(self.in_channels, 64)
         self.down2 = segnetDown2(64, 128)
@@ -24,12 +26,14 @@ class segnet(nn.Module):
         self.up3 = segnetUp3(256, 128)
         self.up2 = segnetUp2(128, 64)
         self.n_classes = n_classes
-        if self.is_student:
+        if self.no_branch_in_last_conv:
             self.up1 = segnetUp2(64, 2* n_classes)
         else:
             self.up1 = segnetUp2(64, n_classes)
-        if self.add_dropout:
-            self.dropout = nn.Dropout(p=self.dropout_rate)
+            if self.is_student:
+                self.up1_logvar = segnetUp2(64, n_classes)
+            if self.add_dropout:
+                self.dropout = nn.Dropout(p=self.dropout_rate)
 
     def forward(self, inputs):
 
@@ -60,11 +64,17 @@ class segnet(nn.Module):
 
         up2 = self.up2(up3, indices_2, unpool_shape2)
         up1 = self.up1(up2, indices_1, unpool_shape1)
+        
         if self.is_student:
-            up1_mean=up1[:, :self.n_classes, :, : ]
-            up1_logvar =up1[:, self.n_classes:, :, :]
-            return up1_mean, up1_logvar
-        return up1
+            if self.no_branch_in_last_conv:
+                up1_mean=up1[:, :self.n_classes, :, : ]
+                up1_logvar =up1[:, self.n_classes:, :, :]
+                return up1_mean, up1_logvar
+            else:
+                up1_logvar = self.up1_logvar(up2, indices_1, unpool_shape1)
+                return up1, up1_logvar
+        else:
+            return up1
 
     def init_vgg16_params(self, vgg16):
         blocks = [self.down1, self.down2, self.down3, self.down4, self.down5]

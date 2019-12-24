@@ -98,6 +98,11 @@ def train(teacher_cfg, student_cfg, writer, logger):
     # Setup Model
     student_model = get_model(student_cfg["model"], n_classes).to(device)
     teacher_model = load_teacher_model(teacher_cfg, student_cfg['training']['teacher_model_path'], n_classes, device)
+
+    if ("use_teacher_weights" in student_cfg["training"]) and (student_cfg["training"]["use_teacher_weights"]):
+        print("student model using teacher weights")
+        student_model.load_state_dict(teacher_model.state_dict(), strict=False)
+    
     print("teacher model loaded from: {}".format(student_cfg['training']['teacher_model_path']))
     student_model = torch.nn.DataParallel(student_model, device_ids=range(torch.cuda.device_count()))
 
@@ -182,7 +187,7 @@ def train(teacher_cfg, student_cfg, writer, logger):
 
     n_sample = student_cfg["training"]["n_sample"]
     gt_ratio = student_cfg["training"]["gt_ratio"]
-
+ 
     while i <= student_cfg["training"]["train_iters"] and flag:
         for (images, labels) in trainloader:
             i += 1
@@ -191,6 +196,8 @@ def train(teacher_cfg, student_cfg, writer, logger):
             batch_size = images.size()[0]
             images = images.to(device)
             gt_labels = labels.to(device)
+           
+
             with torch.no_grad():
                 soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
             optimizer.zero_grad()
@@ -299,8 +306,8 @@ if __name__ == "__main__":
         teacher_cfg = yaml.load(fp)
 
     run_id = int(run_id)
-    #student_run_id = random.randint(1, 100000)
-    student_run_id = 0
+    student_run_id = random.randint(1, 100000)
+    #student_run_id = 998
     logdir = os.path.join(teacher_run_folder, "student_"+str(student_run_id))
     writer = SummaryWriter(log_dir=logdir)
 

@@ -22,6 +22,9 @@ pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 torch.backends.cudnn.benchmark = True
 
 def inference_teacher_model(model, images, n_samples=50):
+    """
+    inference on one image (batch_size =1)
+    """
     #monte carlo inference on teacher 
     pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images)
     softmax_output = pred_mean.cpu().numpy().transpose(1,2,0)
@@ -34,32 +37,23 @@ def inference_teacher_model(model, images, n_samples=50):
     del all_sm_output
     return pred,softmax_output, softmax_var_mc, avg_entropy 
 
-def inference_student_model(model, images):
+def calculate_teacher_uncertainty(softmax_output, softmax_var, avg_entropy,method="var_std"):
     """
-    inference on one image batch size =1
-    pred_mean NCHW with N=1
+    given a mc variance for softmax output calculate the aggregate variance per image
     """
-    pred_mean, pred_logvar = model(images)
-    pred = pred_mean.data.max(1)[1].cpu().numpy()
-    #HWC
-    softmax_func = nn.Softmax(dim=1)
-    softmax_output = np.squeeze(softmax_func(pred_mean).data.cpu().numpy(), axis=0).transpose(1,2,0)
-    logits_var = np.exp(np.squeeze(pred_logvar.data.cpu().numpy(), axis=0).transpose(1,2,0))
-    #uncertainty propagation (#need to implement an pytorch version)
-    
-    softmax_var_propagated = propogate_logit_uncertainty(softmax_output, logits_var)
-    return pred, softmax_output, softmax_var_propagated
-
-def calculate_student_agg_var(softmax_var, method="l2"):
-    """
-    given a covariance matrix for softmax output calculate the aggregate variance per image
-    """
-    if method == "l2":
-        softmax_var[softmax_var < 1e-10] =0
-        agg_var = np.sqrt(np.einsum('ijkl, ijkl -> ij', softmax_var, softmax_var))
+    if method == "var_std":
+        uncertainty = np.sqrt(np.einsum('ijk, ijk -> ij', softmax_var, softmax_var))
+    elif method == "entropy":
+        uncertainty = -np.einsum('ijk, ijl -> ij', softmax_var, np.log(softmax_var+1e-15))
+    elif method == "mutual_information":
+        entropy_x = -np.einsum('ijk, ijl -> ij', softmax_var, np.log(softmax_var+1e-15))
+        avg_entropy_xi = avg_entropy
+        uncertainty =  entropy_x  - avg_entropy_xi
+    elif method =="lc":
+        uncertainty = 1- np.max(softmax_output, axis = 2)
     else:
         raise NotImplementedError("haven't implemented this aggregation method")
-    return agg_var
+    return uncertainty
 
 def validate(cfg, args):
 
@@ -84,8 +78,15 @@ def validate(cfg, args):
 
     valloader = data.DataLoader(loader, batch_size=1, num_workers=8)
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
-    running_uncertainty_metrics = runningUncertaintyScore(n_classes, ignore_index=ignore_index[0])
-
+    #setting up uncertainty metrics
+    uncertainty_metrics = ["var_std", "lc", "entropy", "mutual_information"]
+    running_uncertainty_metrics = {}
+    for mt in uncertainty_metrics:
+        if mt == "lc":
+            scale = False
+        else:
+            scale = True
+        running_uncertainty_metrics[mt] = runningUncertaintyScore(n_classes, ignore_index=ignore_index[0], name=mt, scale_uncertainty=scale)
     # Setup Model
 
     model = get_model(cfg["model"], n_classes).to(device)
@@ -115,9 +116,12 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_propagated = inference_student_model(model, images)
-        agg_var = np.expand_dims(calculate_student_agg_var(softmax_var_propagated), axis=0)
-        
+        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images)
+        uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
+                        avg_entropy, method=mt), axis=0) for mt in uncertainty_metrics}
+
+        pred = np.expand_dims(pred, axis=0)
+        softmax_output = np.expand_dims(softmax_output, axis=0)
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
 
@@ -130,16 +134,18 @@ def validate(cfg, args):
                 )
             )
         running_metrics.update(gt, pred)
-        running_uncertainty_metrics.update(gt, pred, softmax_output, agg_var)
-
+        for mt in running_uncertainty_metrics:
+            uc = uncertainty[mt]
+            running_uncertainty_metrics[mt].update(gt, pred, softmax_output, uc)
     score, class_iou = running_metrics.get_scores()
-    score_uncertainty = running_uncertainty_metrics.get_scores()
-
+    
     for k, v in score.items():
         print(k, v)
 
-    for k, v in score_uncertainty.items():
-        print(k, v)
+    for mt in running_uncertainty_metrics:
+        for k,v in running_uncertainty_metrics[mt].get_scores().items():
+            print(k, v)
+
 
     for i in range(n_classes):
         print(i, class_iou[i])
