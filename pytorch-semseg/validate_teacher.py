@@ -79,7 +79,8 @@ def validate(cfg, args):
     valloader = data.DataLoader(loader, batch_size=1, num_workers=8)
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
     #setting up uncertainty metrics
-    uncertainty_metrics = ["var_std", "lc", "entropy", "mutual_information"]
+    #uncertainty_metrics = ["var_std", "lc", "entropy", "mutual_information"]
+    uncertainty_metrics = ["lc"]
     running_uncertainty_metrics = {}
     for mt in uncertainty_metrics:
         if mt == "lc":
@@ -97,7 +98,6 @@ def validate(cfg, args):
 
     for i, (images, labels) in enumerate(valloader):
         start_time = timeit.default_timer()
-
         images = images.to(device)
 
         # if args.eval_flip:

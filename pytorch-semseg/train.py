@@ -77,7 +77,10 @@ def train(cfg, writer, logger):
     )
 
     # Setup Metrics
-    running_metrics_val = runningScore(n_classes, ignore_index=ignore_index[0])
+    if len(ignore_index)>0:
+        running_metrics_val = runningScore(n_classes, ignore_index=ignore_index[0])
+    else:
+        running_metrics_val = runningScore(n_classes)
 
     # Setup Model
     model = get_model(cfg["model"], n_classes).to(device)

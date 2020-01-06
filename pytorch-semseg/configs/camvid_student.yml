@@ -17,7 +17,7 @@ training:
     teacher_model_path: runs/camvid/12983/segnet_camvid_best_model.pkl
     teacher_run_folder: runs/camvid/12983
     n_sample: 5
-    gt_ratio: 1.0
+    gt_ratio: 0.3
     batch_size: 4
     val_interval: 1000
     n_workers: 8

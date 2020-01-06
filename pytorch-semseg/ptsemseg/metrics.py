@@ -58,6 +58,7 @@ class runningUncertaintyScore(object):
         self.scale_uncertainty = scale_uncertainty
         self.name = name
         self.ece = 0
+        #TODO add other metrics
         self.count  = 0
 
     def get_ause(self, label_true, label_pred, uncertainty, softmax_output):
@@ -71,15 +72,15 @@ class runningUncertaintyScore(object):
         y_pred = y_pred.flatten()
         return (y_true == y_pred).sum()/float(y_pred.shape[0])
 
-    def get_caliberation_errors(self, label_true, label_pred, uncertainty, n_bins=15):
+    def get_caliberation_errors(self, label_true, label_pred, conf, n_bins=15):
         """
-        get expected caliberation error
+        get expected caliberation error for confidence
         """
-        if self.scale_uncertainty :
-            #min max scale uncertainty 
-            uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
+        # if self.scale_uncertainty :
+        #     #min max scale uncertainty 
+        #     uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
         bins = np.linspace(0,1.01, n_bins+1)
-        inds = np.digitize(uncertainty, bins)
+        inds = np.digitize(conf, bins)
         calib_error = 0
         
         for i in range(1, n_bins+1):
@@ -88,24 +89,28 @@ class runningUncertaintyScore(object):
                 continue
             true_sub = label_true[subset]
             pred_sub = label_pred[subset]
-            uncertainty_sub = uncertainty[subset]
+            uncertainty_sub = conf[subset]
             acc = self._calc_acc(true_sub, pred_sub)
-            calib_error += np.abs(acc - (1-uncertainty_sub).mean()) * float(uncertainty_sub.shape[0]) 
-        
-        ece = calib_error/float(uncertainty.shape[0])
+            calib_error += np.abs(acc - conf.mean()) * float(uncertainty_sub.shape[0]) 
+            #TODO plot acc vs uncertainty curve 
+        ece = calib_error/float(conf.shape[0])
         return ece
 
     def update(self, label_trues, label_preds, softmax_outputs, uncertainties):
         for lt, lp, uc, sm in zip(label_trues, label_preds, uncertainties, softmax_outputs):
             lt = lt.flatten()
             lp = lp.flatten()
+            conf = np.max(sm, axis=2)
+            conf = conf.flatten()
+
             uc = uc.flatten()
             idx = (lt != self.ignore_index) & (lt < self.n_classes)
             lt  = lt[idx]
             lp = lp[idx]
             uc = uc[idx]
+            conf = conf[idx]
 
-            self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, uc))/float(self.count + 1)
+            self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, conf))/float(self.count + 1)
             self.count+=1
 
     def get_scores(self):
@@ -119,7 +124,7 @@ class runningUncertaintyScore(object):
 
         return (
             {
-                "Overall ECE using uncertainty method:" + self.name + ": \t": ece,
+                "Overall ECE using max class score in the softmax:" + self.name + ": \t": ece,
             }
         )
 

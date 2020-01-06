@@ -117,7 +117,7 @@ def validate(cfg, args):
         #     pred = np.argmax(outputs, axis=1)
         pred, softmax_output, softmax_var_propagated = inference_student_model(model, images)
         agg_var = np.expand_dims(calculate_student_agg_var(softmax_var_propagated), axis=0)
-        
+        softmax_output = np.expand_dims(softmax_output, axis=0)
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
 
