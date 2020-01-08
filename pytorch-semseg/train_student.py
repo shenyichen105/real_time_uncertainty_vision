@@ -74,6 +74,12 @@ def train(teacher_cfg, student_cfg, writer, logger):
     if "ignore_index" in teacher_cfg["data"]:
         ignore_index = teacher_cfg["data"]["ignore_index"]
 
+    if 'output_ignored_cls' in cfg['training'] and (cfg["training"]['output_ignored_cls']==True):
+        #some model will still output the probability of ignored class
+        n_classes = t_loader.n_classes
+    else:
+        n_classes = t_loader.n_classes - len(ignore_index)
+
     v_loader = data_loader(
         data_path,
         is_transform=True,
@@ -81,7 +87,6 @@ def train(teacher_cfg, student_cfg, writer, logger):
         img_size=(teacher_cfg["data"]["img_rows"], teacher_cfg["data"]["img_cols"]),
     )
 
-    n_classes = t_loader.n_classes - len(ignore_index)
     trainloader = data.DataLoader(
         t_loader,
         batch_size=student_cfg["training"]["batch_size"],

@@ -53,18 +53,24 @@ def train(cfg, writer, logger):
         augmentations=data_aug,
     )
 
-    ignore_index = []
-    if "ignore_index" in cfg["data"]:
-        ignore_index = cfg["data"]["ignore_index"]
-
     v_loader = data_loader(
         data_path,
         is_transform=True,
         split=cfg["data"]["val_split"],
         img_size=(cfg["data"]["img_rows"], cfg["data"]["img_cols"]),
     )
+    
+    ignore_index = []
+    if "ignore_index" in cfg["data"]:
+        ignore_index = cfg["data"]["ignore_index"]
 
-    n_classes = t_loader.n_classes - len(ignore_index)
+    if 'output_ignored_cls' in cfg['training'] and (cfg["training"]['output_ignored_cls']==True):
+        #some model will still output the probability of ignored class
+        #tailor for segnet -> sunrgbd with 38 classes (class 0 ignored)
+        n_classes = t_loader.n_classes
+    else:
+        n_classes = t_loader.n_classes - len(ignore_index)
+    
     trainloader = data.DataLoader(
         t_loader,
         batch_size=cfg["training"]["batch_size"],
@@ -221,13 +227,21 @@ if __name__ == "__main__":
         default="configs/fcn8s_pascal.yml",
         help="Configuration file to use",
     )
+    parser.add_argument(
+        "--test",
+        '-t', 
+        dest='test', 
+        action='store_true'
+    )
 
     args = parser.parse_args()
 
     with open(args.config) as fp:
         cfg = yaml.load(fp)
-
-    run_id = random.randint(1, 100000)
+    if args.test:
+        run_id = 0
+    else:
+        run_id = random.randint(1, 100000)
     logdir = os.path.join("runs", os.path.basename(args.config)[:-4], str(run_id))
     writer = SummaryWriter(log_dir=logdir)
 

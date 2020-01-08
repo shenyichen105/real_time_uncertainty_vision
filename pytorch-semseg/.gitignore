@@ -109,3 +109,4 @@ configs/*
 *.ipynb
 runs/*
 ../.vscode/*
+*.sh
