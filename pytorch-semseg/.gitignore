@@ -104,6 +104,7 @@ ENV/
 configs/*
 !configs/camvid_student.yml
 !configs/camvid.yml
+!configs/sunrgbd.yml
 .vscode/*
 .ipynb_checkpoints/*
 *.ipynb
