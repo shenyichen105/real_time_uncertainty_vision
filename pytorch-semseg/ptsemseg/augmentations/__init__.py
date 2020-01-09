@@ -15,6 +15,7 @@ from ptsemseg.augmentations.augmentations import (
     RandomTranslate,
     CenterCrop,
     Compose,
+    RandomGaussianBlur
 )
 
 logger = logging.getLogger("ptsemseg")
@@ -34,6 +35,7 @@ key2aug = {
     "rotate": RandomRotate,
     "translate": RandomTranslate,
     "ccrop": CenterCrop,
+    "gaussianblur": RandomGaussianBlur,
 }
 
 

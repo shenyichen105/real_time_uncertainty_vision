@@ -74,8 +74,9 @@ def train(teacher_cfg, student_cfg, writer, logger):
     if "ignore_index" in teacher_cfg["data"]:
         ignore_index = teacher_cfg["data"]["ignore_index"]
 
-    if 'output_ignored_cls' in cfg['training'] and (cfg["training"]['output_ignored_cls']==True):
+    if 'output_ignored_cls' in teacher_cfg['training'] and (teacher_cfg["training"]['output_ignored_cls']==True):
         #some model will still output the probability of ignored class
+        #tailor for segnet -> sunrgbd with 38 classes (class 0 ignored)
         n_classes = t_loader.n_classes
     else:
         n_classes = t_loader.n_classes - len(ignore_index)

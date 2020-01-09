@@ -4,7 +4,7 @@ import random
 import numpy as np
 import torchvision.transforms.functional as tf
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 
 
 class Compose(object):
@@ -295,3 +295,13 @@ class RandomSized(object):
         img, mask = (img.resize((w, h), Image.BILINEAR), mask.resize((w, h), Image.NEAREST))
 
         return self.crop(*self.scale(img, mask))
+
+class RandomGaussianBlur(object):
+    def __init__(self, p):
+        self.p = p
+    def __call__(self, img, mask):
+        if random.random() < self.p:
+            img = img.filter(ImageFilter.GaussianBlur(
+                radius=random.random()))
+
+        return img, mask
