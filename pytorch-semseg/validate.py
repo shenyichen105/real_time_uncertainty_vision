@@ -36,8 +36,12 @@ def validate(cfg, args):
     ignore_index = []
     if "ignore_index" in cfg["data"]:
         ignore_index = cfg["data"]["ignore_index"]
-
-    n_classes = loader.n_classes - len(ignore_index)
+    if 'output_ignored_cls' in cfg['training'] and (cfg["training"]['output_ignored_cls']==True):
+        #some model will still output the probability of ignored class
+        #tailor for segnet -> sunrgbd with 38 classes (class 0 ignored)
+        n_classes = loader.n_classes
+    else:
+        n_classes = loader.n_classes - len(ignore_index)
 
     valloader = data.DataLoader(loader, batch_size=cfg["training"]["batch_size"], num_workers=8)
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
@@ -45,6 +49,7 @@ def validate(cfg, args):
     # Setup Model
 
     model = get_model(cfg["model"], n_classes).to(device)
+    print(model)
     state = convert_state_dict(torch.load(args.model_path)["model_state"])
     model.load_state_dict(state)
     model.eval()

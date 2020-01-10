@@ -99,10 +99,7 @@ class SUNRGBDLoader(data.Dataset):
         lbl = lbl.astype(float)
         lbl = m.imresize(lbl, (self.img_size[0], self.img_size[1]), "nearest", mode="F")
         lbl = lbl.astype(int)
-        # print(classes)
-        # print(np.unique(lbl))
-        # print(np.all(classes == np.unique(lbl)))
-        # assert np.all(classes == np.unique(lbl))
+        #assert np.all(classes == np.unique(lbl))
 
         img = torch.from_numpy(img).float()
         lbl = torch.from_numpy(lbl).long()

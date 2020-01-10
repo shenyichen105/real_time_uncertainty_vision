@@ -6,8 +6,8 @@ data:
     dataset: sunrgbd
     train_split: training
     val_split: val
-    img_rows: 224
-    img_cols: 224
+    img_rows: 360
+    img_cols: 480
     path: /home/eddie/dataset/sunrgbd/
     ignore_index: [0]
 

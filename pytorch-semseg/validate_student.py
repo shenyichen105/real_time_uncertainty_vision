@@ -80,7 +80,12 @@ def validate(cfg, args):
     if "ignore_index" in cfg["data"]:
         ignore_index = cfg["data"]["ignore_index"]
 
-    n_classes = loader.n_classes - len(ignore_index)
+    if 'output_ignored_cls' in cfg['training'] and (cfg["training"]['output_ignored_cls']==True):
+        #some model will still output the probability of ignored class
+        #tailor for segnet -> sunrgbd with 38 classes (class 0 ignored)
+        n_classes = loader.n_classes
+    else:
+        n_classes = loader.n_classes - len(ignore_index)
 
     valloader = data.DataLoader(loader, batch_size=1, num_workers=8)
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
