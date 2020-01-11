@@ -60,7 +60,7 @@ def train(cfg, writer, logger):
         img_size=(cfg["data"]["img_rows"], cfg["data"]["img_cols"]),
     )
     
-    ignore_index = []
+    ignore_index = [-100]
     if "ignore_index" in cfg["data"]:
         ignore_index = cfg["data"]["ignore_index"]
 
@@ -142,7 +142,6 @@ def train(cfg, writer, logger):
 
             optimizer.zero_grad()
             outputs = model(images)
-
             loss = loss_fn(input=outputs, target=labels, ignore_index=ignore_index[0])
 
             loss.backward()

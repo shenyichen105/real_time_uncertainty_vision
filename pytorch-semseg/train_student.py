@@ -299,6 +299,13 @@ if __name__ == "__main__":
         type=str,
         help="config file for student model",
     )
+
+    parser.add_argument(
+        "--test",
+        '-t', 
+        dest='test', 
+        action='store_true'
+    )
     args = parser.parse_args()
     with open(args.student_cfg) as fp:
         student_cfg = yaml.load(fp)
@@ -312,7 +319,10 @@ if __name__ == "__main__":
         teacher_cfg = yaml.load(fp)
 
     run_id = int(run_id)
-    student_run_id = random.randint(1, 100000)
+    if args.test:
+        student_run_id = 0
+    else:
+        student_run_id = random.randint(1, 100000)
     #student_run_id = 998
     logdir = os.path.join(teacher_run_folder, "student_"+str(student_run_id))
     writer = SummaryWriter(log_dir=logdir)
