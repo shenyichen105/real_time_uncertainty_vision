@@ -1,0 +1,39 @@
+model:
+    arch: segnet
+    add_dropout: False
+    #dropout_rate: 0.5
+data:
+    dataset: pascalaug
+    train_split: trainaug
+    val_split: val
+    img_rows: 224
+    img_cols: 224
+    path: /home/eddie/dataset/VOCdevkit/VOC2012/
+    ignore_index: [0]
+
+augmentations:
+    hflip: 0.5
+    gaussianblur: 0.5
+
+training:
+    train_iters: 200000
+    output_ignored_cls: True
+    batch_size: 3
+    val_interval: 5000
+    n_workers: 8
+    print_interval: 50
+    optimizer:
+        name: 'sgd'
+        lr: 5.0e-3
+        weight_decay: 0.0005
+        #betas: [0.9, 0.999]
+    lr_schedule:
+        name: 'poly_lr'
+        max_iter: 200000
+    loss:
+        name: 'cross_entropy'
+        size_average: True
+    resume: pascal_segnet_best_model.pkl
+    visdom: False
+    
+    
