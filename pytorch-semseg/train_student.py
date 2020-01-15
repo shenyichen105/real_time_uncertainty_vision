@@ -387,5 +387,8 @@ if __name__ == "__main__":
     logger.info("Let the games begin")
 
     saved_model_path = train(teacher_cfg, student_cfg, writer, logger)
-    val_args = SimpleNamespace(config=args.student_cfg, model_path=saved_model_path, measure_time=True)
+    val_args = SimpleNamespace(config=args.student_cfg,
+                               model_path=saved_model_path, 
+                               measure_time=True,
+                               save_results=True)
     validate(student_cfg, val_args)

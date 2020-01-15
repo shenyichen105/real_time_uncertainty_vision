@@ -290,5 +290,6 @@ if __name__ == "__main__":
 
         saved_model_path = train(cfg, writer, logger)
     mode = "ensemble" if args.ensemble else "mc"
-    val_args = SimpleNamespace(mode=mode, config=args.config, model_path=saved_model_path, ensemble_folder=rundir, measure_time=True)
+    val_args = SimpleNamespace(mode=mode, config=args.config, model_path=saved_model_path, 
+                                ensemble_folder=rundir, measure_time=True, save_results=True)
     validate(cfg, val_args)

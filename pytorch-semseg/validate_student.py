@@ -149,6 +149,34 @@ def validate(cfg, args):
     for i in range(n_classes):
         print(i, class_iou[i])
 
+    if args.save_results:
+        if args.save_results_path is not None:
+            result_file = args.save_results_path
+        elif 'teacher_ensemble_folder' in cfg['training']: 
+            result_file = os.path.join(cfg['training']['teacher_ensemble_folder'], "results.txt")
+        elif 'teacher_run_folder' in cfg['training']: 
+            result_file = os.path.join(cfg['training']['teacher_run_folder'], "results.txt")
+        else:
+            raise ValueError("no teacher folder specified in student cfg")
+        
+        #append to the same file if result file is already created
+        if os.path.exists(result_file):
+            write_mode = "a"
+        else:
+            write_mode = "w"
+        
+        with open(result_file, write_mode) as f:
+            string = "\nstudent_folder: {} gt_ratio={} n_sample={} use_teacher_weights={}"\
+                        .format(os.path.dirname(args.model_path), 
+                            cfg['training']['gt_ratio'],
+                            cfg['training']['n_sample'],
+                            cfg['training']['use_teacher_weights'])
+            print(string, file=f)
+            print(" ", file=f)
+            for k, v in score.items():
+                print(k, v, file=f)
+            for k, v in score_uncertainty.items():
+                print(k, v, file=f)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Hyperparams")
@@ -166,6 +194,18 @@ if __name__ == "__main__":
         default="fcn8s_pascal_1_26.pkl",
         help="Path to the saved model",
     )
+
+    parser.add_argument(
+        "--save_results",
+        "-s",
+        action="store_true",
+        help="save results to a summary file",
+    )
+
+    parser.add_argument(
+        "--save_results_path",
+        help="path for a summary file to save results",
+    )
     # parser.add_argument(
     #     "--eval_flip",
     #     dest="eval_flip",
@@ -180,7 +220,7 @@ if __name__ == "__main__":
     #     help="Disable evaluation with flipped image |\
     #                           True by default",
     # )
-    parser.set_defaults(eval_flip=True)
+    #parser.set_defaults(eval_flip=True)
 
     parser.add_argument(
         "--measure_time",

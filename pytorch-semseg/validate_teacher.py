@@ -163,6 +163,7 @@ def validate(cfg, args):
         for mt in running_uncertainty_metrics:
             uc = uncertainty[mt]
             running_uncertainty_metrics[mt].update(gt, pred, softmax_output, uc)
+            
     score, class_iou = running_metrics.get_scores()
     
     for k, v in score.items():
@@ -175,6 +176,35 @@ def validate(cfg, args):
 
     for i in range(n_classes):
         print(i, class_iou[i])
+
+    if args.save_results:
+        if args.save_results_path is not None:
+            result_folder = os.path.dirname(args.model_path)
+            result_file = args.save_results_path
+        elif args.mode == "ensemble": 
+            result_folder = args.ensemble_folder
+            result_file = os.path.join(result_folder, "results.txt")
+        elif args.mode == "mc": 
+            result_folder = os.path.dirname(args.model_path)
+            result_file = os.path.join(result_folder , "results.txt")
+        else:
+            raise ValueError("no supporting this mode")
+        
+        #append to the same file if result file is already created
+        if os.path.exists(result_file):
+            write_mode = "a"
+        else:
+            write_mode = "w"
+        
+        with open(result_file, write_mode) as f:
+            string = "\nteacher\n teacher_folder: {}".format(result_folder)
+            print(string, file=f)
+            print(" ", file=f)
+            for k, v in score.items():
+                print(k, v, file=f)
+            for mt in running_uncertainty_metrics:
+                for k,v in running_uncertainty_metrics[mt].get_scores().items():
+                    print(k, v, file=f)
 
 
 if __name__ == "__main__":
@@ -232,7 +262,18 @@ if __name__ == "__main__":
     #     help="Disable evaluation with flipped image |\
     #                           True by default",
     # )
-    parser.set_defaults(eval_flip=True)
+    parser.add_argument(
+        "--save_results",
+        "-s",
+        action="store_true",
+        help="save results to a summary file",
+    )
+
+    parser.add_argument(
+        "--save_results_path",
+        help="path for a summary file to save results",
+    )
+    #parser.set_defaults(eval_flip=True)
 
     parser.add_argument(
         "--measure_time",
