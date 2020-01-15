@@ -25,8 +25,30 @@ def sample_from_teacher(teacher_model, input, n_sample=5):
     teacher_model.apply(disable_dropout)
     return all_samples
 
+def sample_from_teacher_ensemble(teacher_ensemble, input):
+    #ensemble teacher's predictions
+    #return an output of [n_sample*batch_size, w, h] and expanded input
+    assert isinstance(teacher_ensemble, list) == True, "input 'model' needs to be a list for ensemble mode"
+    n_models = len(teacher_ensemble)
+    all_samples = []
+    for i in range(n_models):
+        teacher_model = teacher_ensemble[i]
+        all_samples.append(teacher_model(input).detach())
+    all_samples = torch.cat(all_samples, 0).to(input.device)
+    return all_samples
+
 def mc_inference(model, input, n_samples=100):
+    #model: a teacher model with dropout layers
     output = sample_from_teacher(model, input, n_samples)
+    softmax_func = nn.Softmax(dim=1)
+    sm_output = softmax_func(output)
+    pred_mean = torch.mean(sm_output,dim=0)
+    pred_var_sm = torch.var(sm_output,dim=0)
+    return pred_mean, pred_var_sm, sm_output
+
+def ensemble_inference(models, input):
+    # models: the ensemble of teacher models with differnent random initialization
+    output = sample_from_teacher_ensemble(models, input)
     softmax_func = nn.Softmax(dim=1)
     sm_output = softmax_func(output)
     pred_mean = torch.mean(sm_output,dim=0)

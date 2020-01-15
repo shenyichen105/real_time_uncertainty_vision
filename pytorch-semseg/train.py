@@ -19,7 +19,10 @@ from ptsemseg.augmentations import get_composed_augmentations
 from ptsemseg.schedulers import get_scheduler
 from ptsemseg.optimizers import get_optimizer
 
+from types import SimpleNamespace
+from validate_teacher import validate
 from tensorboardX import SummaryWriter
+
 import pickle
 from functools import partial
 pickle.load = partial(pickle.load, encoding="latin1")
@@ -130,6 +133,7 @@ def train(cfg, writer, logger):
     best_iou = -100.0
     i = start_iter
     flag = True
+    best_iter = 0
 
     while i <= cfg["training"]["train_iters"] and flag:
         for (images, labels) in trainloader:
@@ -199,6 +203,7 @@ def train(cfg, writer, logger):
 
                 if score["Mean IoU : \t"] >= best_iou:
                     best_iou = score["Mean IoU : \t"]
+                    best_iter = i + 1
                     state = {
                         "epoch": i + 1,
                         "model_state": model.state_dict(),
@@ -214,8 +219,9 @@ def train(cfg, writer, logger):
 
             if (i + 1) == cfg["training"]["train_iters"]:
                 flag = False
+                print("best iteration: {}".format(best_iter))
                 break
-
+    return save_path 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="config")
@@ -233,21 +239,56 @@ if __name__ == "__main__":
         action='store_true'
     )
 
+    parser.add_argument(
+        "--ensemble",
+        '-e', 
+        dest='ensemble', 
+        action='store_true'
+    )
+
+    parser.add_argument(
+        "--n_ensemble",
+        '-n', 
+        dest='n_ensemble', 
+        default=5
+    )
     args = parser.parse_args()
 
-    with open(args.config) as fp:
-        cfg = yaml.load(fp)
+
     if args.test:
         run_id = 0
     else:
         run_id = random.randint(1, 100000)
-    logdir = os.path.join("runs", os.path.basename(args.config)[:-4], str(run_id))
-    writer = SummaryWriter(log_dir=logdir)
+        
+    #TODO make ensemble parallely trained (on hpc)
+    if args.ensemble:
+        rundir = os.path.join("runs", os.path.basename(args.config)[:-4], str(run_id)+"_ensemble")
+        if not os.path.exists(rundir):
+            os.makedirs(rundir)
+        shutil.copy(args.config, rundir)
+        for i in range(int(args.n_ensemble)):
+            #reload the config to ensure cfg not corrupted
+            with open(args.config) as fp:
+                cfg = yaml.load(fp)  
+            logdir = os.path.join(rundir, str(i))
+            writer = SummaryWriter(log_dir=logdir)
+            print("RUNDIR: {}".format(logdir))
+            logger = get_logger(logdir)
+            logger.info("Let the games begin")
+            saved_model_path = train(cfg, writer, logger)
+    else:
+        with open(args.config) as fp:
+            cfg = yaml.load(fp)
+        rundir = os.path.join("runs", os.path.basename(args.config)[:-4], str(run_id))
+        writer = SummaryWriter(log_dir=rundir)
 
-    print("RUNDIR: {}".format(logdir))
-    shutil.copy(args.config, logdir)
+        print("RUNDIR: {}".format(rundir))
+        shutil.copy(args.config, rundir)
 
-    logger = get_logger(logdir)
-    logger.info("Let the games begin")
+        logger = get_logger(rundir)
+        logger.info("Let the games begin")
 
-    train(cfg, writer, logger)
+        saved_model_path = train(cfg, writer, logger)
+    mode = "ensemble" if args.ensemble else "mc"
+    val_args = SimpleNamespace(mode=mode, config=args.config, model_path=saved_model_path, ensemble_folder=rundir, measure_time=True)
+    validate(cfg, val_args)

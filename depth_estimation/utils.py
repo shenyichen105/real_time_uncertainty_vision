@@ -40,7 +40,7 @@ def parse_command():
                         help='decoder: ' + ' | '.join(decoder_names) + ' (default: upproj)')
     parser.add_argument('-j', '--workers', default=10, type=int, metavar='N',
                         help='number of data loading workers (default: 10)')
-    parser.add_argument('--epochs', default=20, type=int, metavar='N',
+    parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run (default: 30)')
     parser.add_argument('-c', '--criterion', metavar='LOSS', default='l1', choices=loss_names,
                         help='loss function: ' + ' | '.join(loss_names) + ' (default: l1)')
@@ -86,11 +86,11 @@ def adjust_learning_rate(optimizer, epoch, lr_init):
     """Sets the learning rate to the initial LR decayed by 10 every 5 epochs"""
     stages = [7, 18]
     if epoch <= stages[0]:
-        lr = lr_init * 0.1
+        lr = lr_init * 0.2
     elif epoch > stages[0] and epoch <= stages[1]:
-        lr = lr_init * 0.01
+        lr = lr_init * 0.04
     else:
-        lr = lr_init * 0.001
+        lr = lr_init * 0.008
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 

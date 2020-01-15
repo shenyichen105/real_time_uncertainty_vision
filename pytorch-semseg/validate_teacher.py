@@ -11,7 +11,7 @@ from ptsemseg.models import get_model
 from ptsemseg.loader import get_loader
 from ptsemseg.metrics import runningScore, runningUncertaintyScore
 from ptsemseg.utils import convert_state_dict
-from ptsemseg.inference_utils import propogate_logit_uncertainty, mc_inference
+from ptsemseg.inference_utils import propogate_logit_uncertainty, mc_inference, ensemble_inference
 
 import pickle
 import os
@@ -21,12 +21,21 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 torch.backends.cudnn.benchmark = True
 
-def inference_teacher_model(model, images, n_samples=50):
+def inference_teacher_model(model, images,  mode="mc", n_samples=50):
     """
     inference on one image (batch_size =1)
+    n_samples: number of samples for mc dropout (mc mode only)
     """
-    #monte carlo inference on teacher 
-    pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images)
+    #monte carlo or ensemble inference on teacher 
+    if mode == "mc":
+        pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images, n_samples=n_samples)
+    elif mode == "ensemble":
+        # input needs to be 
+        assert isinstance(model, list) == True, "input 'model' needs to be a list for ensemble mode"
+        pred_mean, pred_var_sm, all_sm_output = ensemble_inference(model, images)
+    else:
+        raise NotImplementedError("unrecognized mode: "+ str(mode))
+    
     softmax_output = pred_mean.cpu().numpy().transpose(1,2,0)
     pred = pred_mean.data.max(0)[1].cpu().numpy()
     softmax_var_mc = pred_var_sm.data.cpu().numpy().transpose(1,2,0)
@@ -54,7 +63,7 @@ def calculate_teacher_uncertainty(softmax_output, softmax_var, avg_entropy,metho
     else:
         raise NotImplementedError("haven't implemented this aggregation method")
     return uncertainty
-
+    
 def validate(cfg, args):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -94,12 +103,24 @@ def validate(cfg, args):
             scale = True
         running_uncertainty_metrics[mt] = runningUncertaintyScore(n_classes, ignore_index=ignore_index[0], name=mt, scale_uncertainty=scale)
     # Setup Model
+    def load_model_from_cfg(cfg, model_path, n_classes, device):
+        model = get_model(cfg["model"], n_classes).to(device)
+        state = convert_state_dict(torch.load(model_path)["model_state"])
+        model.load_state_dict(state)
+        model.eval()
+        model.to(device)
+        return model
 
-    model = get_model(cfg["model"], n_classes).to(device)
-    state = convert_state_dict(torch.load(args.model_path)["model_state"])
-    model.load_state_dict(state)
-    model.eval()
-    model.to(device)
+    if args.mode == "mc":
+        model = load_model_from_cfg(cfg, args.model_path, n_classes, device)     
+    elif args.mode == "ensemble":
+        model_file_name = "{}_{}_best_model.pkl".format(cfg["model"]["arch"], cfg["data"]["dataset"])
+        paths = [os.path.join(args.ensemble_folder, str(i), model_file_name) for i in range(int(args.ensemble_size))]
+        model = []
+        for path in paths:
+            model.append(load_model_from_cfg(cfg, path, n_classes, device))
+    else:
+        raise NotImplementedError("unrecognized mode")
 
     for i, (images, labels) in enumerate(valloader):
         start_time = timeit.default_timer()
@@ -121,7 +142,7 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images)
+        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images, mode=args.mode)
         uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
                         avg_entropy, method=mt), axis=0) for mt in uncertainty_metrics}
 
@@ -159,6 +180,14 @@ def validate(cfg, args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Hyperparams")
     parser.add_argument(
+        "--mode",
+        "-m",
+        nargs="?",
+        type=str,
+        default="mc",
+        help="inference mode for teacher",
+    )
+    parser.add_argument(
         "--config",
         nargs="?",
         type=str,
@@ -170,7 +199,24 @@ if __name__ == "__main__":
         nargs="?",
         type=str,
         default="fcn8s_pascal_1_26.pkl",
-        help="Path to the saved model",
+        help="(for mc mode) Path to the saved model ",
+    )
+
+    parser.add_argument(
+        "--ensemble_folder",
+        nargs="?",
+        type=str,
+        default="runs/camvid_test/91245_ensemble",
+        help="(ensemble mode) Path to the saved ensemble model folder",
+    )
+
+    parser.add_argument(
+        "--ensemble_size",
+        "-n",
+        nargs="?",
+        type=str,
+        default="5",
+        help="(ensemble mode) number of models in the ensmeble",
     )
     # parser.add_argument(
     #     "--eval_flip",

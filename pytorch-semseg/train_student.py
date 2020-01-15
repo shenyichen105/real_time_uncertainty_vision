@@ -20,7 +20,9 @@ from ptsemseg.schedulers import get_scheduler
 from ptsemseg.optimizers import get_optimizer
 from ptsemseg.utils import convert_state_dict
 
+from validate_student import validate
 from tensorboardX import SummaryWriter
+from types import SimpleNamespace
 
 from functools import partial
 import pickle
@@ -42,6 +44,67 @@ def load_teacher_model(teacher_cfg, teacher_model_path, n_classes, device):
     model.eval()
     model.to(device)
     return model
+
+def load_teacher_ensemble(teacher_cfg, cfg, n_classes, device):
+    model_file_name = "{}_{}_best_model.pkl".format(teacher_cfg["model"]["arch"], teacher_cfg["data"]["dataset"])
+    paths = [os.path.join(cfg['training']['teacher_ensemble_folder'], str(i), model_file_name)\
+             for i in range(int(cfg["training"]["n_sample"]))]
+    ensemble= []
+    for path in paths:
+        ensemble.append(load_teacher_model(teacher_cfg, path, n_classes, device))
+    return ensemble
+
+def sample_from_teacher(teacher_model, input, n_sample=5):
+    assert n_sample > 0
+    #monte carlo sampling teacher's preedictions
+    #return an output of [n_sample*batch_size, w, h] and expanded input
+    teacher_model.apply(enable_dropout)
+    all_samples = []
+    for i in range(n_sample):
+        all_samples.append(teacher_model(input).detach())
+    all_samples = torch.cat(all_samples, 0).to(input.device)
+    teacher_model.apply(disable_dropout)
+    return all_samples
+
+def sample_from_teacher_ensemble(teacher_ensemble, input, n_sample=5):
+    #return an output of [n_sample*batch_size, w, h] and expanded input
+    assert isinstance(teacher_ensemble, list) == True, \
+        "input 'model' needs to be a list for ensemble mode"
+    assert n_sample <= len(teacher_ensemble)
+    all_samples = []
+    for i in range(n_sample):
+        teacher_model = teacher_ensemble[i]
+        all_samples.append(teacher_model(input).detach())
+    all_samples = torch.cat(all_samples, 0).to(input.device)
+    return all_samples
+
+def expand_output(output, n_sample=5):
+    assert n_sample > 0
+    #copy the output n_sample times
+    #return an output of [n_sample*batch_size, w, h]
+    all_output = []
+    for i in range(n_sample):
+        all_output.append(output.clone())
+    all_output = torch.cat(all_output).to(output.device)
+    return all_output
+
+def calculate_mc_statistics(teacher_model, input, n_sample=5):
+    # calculate mc mean and var in a memory effecient way
+    assert n_sample > 0
+    teacher_model.apply(enable_dropout)
+    mean = teacher_model(input).detach()
+    running_s = torch.zeros(mean.size(),  dtype=torch.float32).to(mean.device)
+
+    for i in range(n_sample - 1):
+        k = i + 2
+        new_sample = teacher_model.predict(input).detach()
+        new_mean  =  mean + (new_sample - mean)/k
+        running_s +=  (new_sample - new_mean) * (new_sample - mean)
+        mean = new_mean
+    if n_sample > 1:
+        var = running_s/(n_sample - 1)
+    teacher_model.apply(disable_dropout)
+    return mean, var
 
 def train(teacher_cfg, student_cfg, writer, logger):
 
@@ -103,13 +166,23 @@ def train(teacher_cfg, student_cfg, writer, logger):
     running_metrics_val = runningScore(n_classes, ignore_index=ignore_index[0])
     # Setup Model
     student_model = get_model(student_cfg["model"], n_classes).to(device)
-    teacher_model = load_teacher_model(teacher_cfg, student_cfg['training']['teacher_model_path'], n_classes, device)
+    if args.mode == "mc":
+        teacher_model = load_teacher_model(teacher_cfg, student_cfg['training']['teacher_model_path'], n_classes, device)
+        print("teacher model loaded from: {}".format(student_cfg['training']['teacher_model_path']))
+    elif args.mode == "ensemble":
+        teacher_model = load_teacher_ensemble(teacher_cfg, student_cfg, n_classes, device)
+        print("teacher ensemble loaded from: {}".format(student_cfg['training']['teacher_ensemble_folder']))
+    else:
+        raise NotImplementedError("unrecogized mode")
 
     if ("use_teacher_weights" in student_cfg["training"]) and (student_cfg["training"]["use_teacher_weights"]):
         print("student model using teacher weights")
-        student_model.load_state_dict(teacher_model.state_dict(), strict=False)
-    
-    print("teacher model loaded from: {}".format(student_cfg['training']['teacher_model_path']))
+        if args.mode == "mc":
+            student_model.load_state_dict(teacher_model.state_dict(), strict=False)
+        elif args.mode == "ensemble":
+            #load weights from the first ensemeble model
+            student_model.load_state_dict(teacher_model[0].state_dict(), strict=False)
+
     student_model = torch.nn.DataParallel(student_model, device_ids=range(torch.cuda.device_count()))
 
     # Setup optimizer, lr_scheduler and loss function
@@ -150,50 +223,11 @@ def train(teacher_cfg, student_cfg, writer, logger):
     best_iou = -100.0
     i = start_iter
     flag = True
-
-    def sample_from_teacher(teacher_model, input, n_sample=5):
-        assert n_sample > 0
-        #monte carlo sampling teacher's preedictions
-        #return an output of [n_sample*batch_size, w, h] and expanded input
-        teacher_model.apply(enable_dropout)
-        all_samples = []
-        for i in range(n_sample):
-            all_samples.append(teacher_model(input).detach())
-        all_samples = torch.cat(all_samples, 0).to(input.device)
-        teacher_model.apply(disable_dropout)
-        return all_samples
-
-    def expand_output(output, n_sample=5):
-        assert n_sample > 0
-        #copy the output n_sample times
-        #return an output of [n_sample*batch_size, w, h]
-        all_output = []
-        for i in range(n_sample):
-            all_output.append(output.clone())
-        all_output = torch.cat(all_output).to(output.device)
-        return all_output
-
-    def calculate_mc_statistics(teacher_model, input, n_sample=5):
-        # calculate mc mean and var in a memory effecient way
-        assert n_sample > 0
-        teacher_model.apply(enable_dropout)
-        mean = teacher_model(input).detach()
-        running_s = torch.zeros(mean.size(),  dtype=torch.float32).to(mean.device)
-
-        for i in range(n_sample - 1):
-            k = i + 2
-            new_sample = teacher_model.predict(input).detach()
-            new_mean  =  mean + (new_sample - mean)/k
-            running_s +=  (new_sample - new_mean) * (new_sample - mean)
-            mean = new_mean
-        if n_sample > 1:
-            var = running_s/(n_sample - 1)
-        teacher_model.apply(disable_dropout)
-        return mean, var
+    best_iter = 0
 
     n_sample = student_cfg["training"]["n_sample"]
     gt_ratio = student_cfg["training"]["gt_ratio"]
- 
+    
     while i <= student_cfg["training"]["train_iters"] and flag:
         for (images, labels) in trainloader:
             i += 1
@@ -202,10 +236,14 @@ def train(teacher_cfg, student_cfg, writer, logger):
             batch_size = images.size()[0]
             images = images.to(device)
             gt_labels = labels.to(device)
-           
 
             with torch.no_grad():
-                soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
+                if args.mode == "mc":
+                    soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
+                elif args.mode == "ensemble":
+                    #here teacher model is a list of loaded models
+                    soft_labels = sample_from_teacher_ensemble(teacher_model, images, n_sample=n_sample)
+            
             optimizer.zero_grad()
             pred_mean, pred_logvar = student_model(images) 
             
@@ -273,6 +311,7 @@ def train(teacher_cfg, student_cfg, writer, logger):
 
                 if score["Mean IoU : \t"] >= best_iou:
                     best_iou = score["Mean IoU : \t"]
+                    best_iter = i+1
                     state = {
                         "epoch": i + 1,
                         "model_state": student_model.state_dict(),
@@ -288,8 +327,9 @@ def train(teacher_cfg, student_cfg, writer, logger):
 
             if (i + 1) == student_cfg["training"]["train_iters"]:
                 flag = False
+                print("best iteration: {}".format(best_iter))
                 break
-
+    return save_path          
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="config")
@@ -301,6 +341,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--mode",
+        "-m",
+        nargs="?",
+        type=str,
+        default= "mc",
+        help="teacher mode",
+    )
+    parser.add_argument(
         "--test",
         '-t', 
         dest='test', 
@@ -310,7 +358,12 @@ if __name__ == "__main__":
     with open(args.student_cfg) as fp:
         student_cfg = yaml.load(fp)
     
-    teacher_run_folder = student_cfg['training']['teacher_run_folder']
+    if args.mode == "mc":
+        teacher_run_folder = student_cfg['training']['teacher_run_folder']
+    elif args.mode == "ensemble":
+        teacher_run_folder = student_cfg['training']['teacher_ensemble_folder']
+    else:
+        raise NotImplementedError("unrecognized mode")
 
     pf, run_id = os.path.split(teacher_run_folder)
     _, dataset = os.path.split(pf)
@@ -318,7 +371,7 @@ if __name__ == "__main__":
     with open(teacher_config_path) as fp:
         teacher_cfg = yaml.load(fp)
 
-    run_id = int(run_id)
+    run_id = int(run_id[:5])
     if args.test:
         student_run_id = 0
     else:
@@ -333,4 +386,6 @@ if __name__ == "__main__":
     logger = get_logger(logdir)
     logger.info("Let the games begin")
 
-    train(teacher_cfg, student_cfg, writer, logger)
+    saved_model_path = train(teacher_cfg, student_cfg, writer, logger)
+    val_args = SimpleNamespace(config=args.student_cfg, model_path=saved_model_path, measure_time=True)
+    validate(student_cfg, val_args)
