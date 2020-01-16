@@ -94,14 +94,14 @@ def validate(cfg, args):
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
     #setting up uncertainty metrics
     #uncertainty_metrics = ["var_std", "lc", "entropy", "mutual_information"]
-    uncertainty_metrics = ["lc"]
+    uncertainty_metrics = ["var_std"]
     running_uncertainty_metrics = {}
     for mt in uncertainty_metrics:
-        if mt == "lc":
-            scale = False
-        else:
-            scale = True
-        running_uncertainty_metrics[mt] = runningUncertaintyScore(n_classes, ignore_index=ignore_index[0], name=mt, scale_uncertainty=scale)
+    #     if mt == "lc":
+    #         scale = False
+    #     else:
+    #         scale = True
+        running_uncertainty_metrics[mt] = runningUncertaintyScore(n_classes, ignore_index=ignore_index[0], name=mt)
     # Setup Model
     def load_model_from_cfg(cfg, model_path, n_classes, device):
         model = get_model(cfg["model"], n_classes).to(device)

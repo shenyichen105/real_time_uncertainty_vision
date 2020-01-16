@@ -5,7 +5,7 @@ model:
 data:
     dataset: camvid
     train_split: train
-    val_split: val
+    val_split: test
     img_rows: 360
     img_cols: 480
     path: /home/eddie/dataset/CamVid

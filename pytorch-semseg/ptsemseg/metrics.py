@@ -2,6 +2,7 @@
 # https://github.com/wkentaro/pytorch-fcn/blob/master/torchfcn/utils.py
 
 import numpy as np
+from sklearn.metrics import roc_auc_score
 
 
 class runningScore(object):
@@ -58,14 +59,51 @@ class runningUncertaintyScore(object):
         self.scale_uncertainty = scale_uncertainty
         self.name = name
         self.ece = 0
+        self.ause = 0
+        self.auc_miss = 0
         #TODO add other metrics
         self.count  = 0
+
+        self.brier_score = np.array([])
+        self.uncertainty = np.array([])
+
+    def _calculate_brier_score(self, label_true, softmax_output):
+        """
+        calculate brier score
+        """
+        one_hot = np.zeros(softmax_output.shape)
+        one_hot[np.arange(one_hot.shape[0]), label_true] = 1
+        dist = (one_hot - softmax_output)
+        brier_score = np.mean(dist**2, axis=-1)
+        return brier_score
 
     def get_ause(self, label_true, label_pred, uncertainty, softmax_output):
         """
         get ause based on brier score
         """
-        raise NotImplementedError("not implemented yet")
+        brier_score = self._calculate_brier_score(label_true, softmax_output)
+        #normalize
+        ause = self._calculate_ause(uncertainty,brier_score)
+        return ause
+    
+    def _calculate_ause(self, uncertainty, brier_score):
+        """
+        get ause based on brier score
+        """
+        #normalize
+        brier_score /= np.max(brier_score)
+        ind_oracle = np.argsort(brier_score)
+        ind_uncertainty = np.argsort(uncertainty)
+        
+        avg_brier_oracle = np.cumsum(brier_score[ind_oracle])/(np.arange(len(brier_score)) + 1)
+        avg_brier_w_uncertainty = np.cumsum(brier_score[ind_uncertainty])/(np.arange(len(brier_score)) + 1)
+        ause = np.trapz((avg_brier_w_uncertainty - avg_brier_oracle), x=np.linspace(0, 1, num=len(brier_score)))
+        return ause
+
+    def _calculate_auc_misdetection(self, label_true, label_pred, uncertainty):
+        misdetect = (label_true !=label_pred) 
+        auc = roc_auc_score(misdetect, uncertainty)
+        return auc
 
     def _calc_acc(self, y_true, y_pred):
         y_true = y_true.flatten()
@@ -76,9 +114,6 @@ class runningUncertaintyScore(object):
         """
         get expected caliberation error for confidence
         """
-        # if self.scale_uncertainty :
-        #     #min max scale uncertainty 
-        #     uncertainty = (uncertainty - uncertainty.min()) / (uncertainty.max() - uncertainty.min())
         bins = np.linspace(0,1.01, n_bins+1)
         inds = np.digitize(conf, bins)
         calib_error = 0
@@ -103,15 +138,23 @@ class runningUncertaintyScore(object):
             conf = np.max(sm, axis=2)
             conf = conf.flatten()
 
+            n_classes = sm.shape[2]
+            sm = sm.reshape(-1, n_classes)
+
             uc = uc.flatten()
             idx = (lt != self.ignore_index) & (lt < self.n_classes)
             lt  = lt[idx]
             lp = lp[idx]
             uc = uc[idx]
             conf = conf[idx]
-
+            sm = sm[idx]
             self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, conf))/float(self.count + 1)
+            self.ause = (self.ause * self.count + self.get_ause(lt, lp, uc, sm))/float(self.count + 1)
+            self.auc_miss = (self.auc_miss * self.count + self._calculate_auc_misdetection(lt, lp, uc))/float(self.count + 1)
             self.count+=1
+
+            #self.brier_score = np.concatenate([self.brier_score, self._calculate_brier_score(lt, sm)])
+            #self.uncertainty = np.concatenate([self.uncertainty, uc])
 
     def get_scores(self):
         """Returns accuracy score evaluation result.
@@ -121,10 +164,15 @@ class runningUncertaintyScore(object):
             - fwavacc
         """
         ece = self.ece
+        ause = self.ause
+        auc_miss = self.auc_miss
+        #ause = self._calculate_ause(self.uncertainty, self.brier_score)
 
         return (
             {
                 "Overall ECE using max class score in the softmax:" + self.name + ": \t": ece,
+                "mean AUSE using brier score as oracle:" + self.name + ": \t": ause,
+                "mean AUC_misdetect:" + self.name + ": \t": auc_miss,
             }
         )
 
