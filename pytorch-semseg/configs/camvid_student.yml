@@ -22,10 +22,10 @@ training:
     val_interval: 1000
     n_workers: 8
     print_interval: 50
-    use_teacher_weights: True
+    use_teacher_weights: False
     optimizer:
         name: 'sgd'
-        lr: 1.0e-4
+        lr: 1.0e-3
         momentum: 0.9
         weight_decay: 0.0005
         # betas: [0.9, 0.999]

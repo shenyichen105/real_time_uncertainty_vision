@@ -16,12 +16,12 @@ training:
     train_iters: 60000
     teacher_ensemble_folder: runs/camvid_new/23786_ensemble
     n_sample: 5
-    gt_ratio: 1.0
+    gt_ratio: 0.3
     batch_size: 3
     val_interval: 1000
     n_workers: 8
     print_interval: 50
-    use_teacher_weights: True
+    use_teacher_weights: False
     optimizer:
         name: 'sgd'
         lr: 1.0e-3

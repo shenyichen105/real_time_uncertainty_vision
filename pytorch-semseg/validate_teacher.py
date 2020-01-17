@@ -11,7 +11,7 @@ from ptsemseg.models import get_model
 from ptsemseg.loader import get_loader
 from ptsemseg.metrics import runningScore, runningUncertaintyScore
 from ptsemseg.utils import convert_state_dict
-from ptsemseg.inference_utils import propogate_logit_uncertainty, mc_inference, ensemble_inference
+from ptsemseg.inference_utils import mc_inference, ensemble_inference
 
 import pickle
 import os
@@ -35,16 +35,8 @@ def inference_teacher_model(model, images,  mode="mc", n_samples=25):
         pred_mean, pred_var_sm, all_sm_output = ensemble_inference(model, images)
     else:
         raise NotImplementedError("unrecognized mode: "+ str(mode))
-    
-    softmax_output = pred_mean.cpu().numpy().transpose(1,2,0)
-    pred = pred_mean.data.max(0)[1].cpu().numpy()
-    softmax_var_mc = pred_var_sm.data.cpu().numpy().transpose(1,2,0)
-    
-    #calculate entropy of teacher 
-    all_sm_output = all_sm_output.data.cpu().numpy().transpose(0,2,3,1)
-    avg_entropy = np.mean(-np.einsum('nijk, nijl -> nij', all_sm_output, np.log(all_sm_output+1e-15))/all_sm_output.shape[3], axis = 0)
-    del all_sm_output
-    return pred,softmax_output, softmax_var_mc, avg_entropy 
+
+    return pred_mean, pred_var_sm, all_sm_output
 
 def calculate_teacher_uncertainty(softmax_output, softmax_var, avg_entropy,method="var_std"):
     """
@@ -142,7 +134,26 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
+        pred_mean, pred_var_sm, all_sm_output  = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
+
+        if args.measure_time:
+            elapsed_time = timeit.default_timer() - start_time
+            print(
+                "Inference time \
+                  (iter {0:5d}): {1:3.5f} fps".format(
+                    i + 1, pred_mean.size()[0] / elapsed_time
+                )
+            )
+        
+        softmax_output = pred_mean.cpu().numpy().transpose(1,2,0)
+        pred = pred_mean.data.max(0)[1].cpu().numpy()
+        softmax_var_mc = pred_var_sm.data.cpu().numpy().transpose(1,2,0)
+        
+        #calculate entropy of teacher 
+        all_sm_output = all_sm_output.data.cpu().numpy().transpose(0,2,3,1)
+        avg_entropy = np.mean(-np.einsum('nijk, nijl -> nij', all_sm_output, np.log(all_sm_output+1e-15))/all_sm_output.shape[3], axis = 0)
+        del all_sm_output
+
         uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
                         avg_entropy, method=mt), axis=0) for mt in uncertainty_metrics}
 
@@ -150,15 +161,6 @@ def validate(cfg, args):
         softmax_output = np.expand_dims(softmax_output, axis=0)
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
-
-        if args.measure_time:
-            elapsed_time = timeit.default_timer() - start_time
-            print(
-                "Inference time \
-                  (iter {0:5d}): {1:3.5f} fps".format(
-                    i + 1, pred.shape[0] / elapsed_time
-                )
-            )
         running_metrics.update(gt, pred)
         for mt in running_uncertainty_metrics:
             uc = uncertainty[mt]
@@ -228,7 +230,7 @@ if __name__ == "__main__":
         "--n_samples",
         nargs="?",
         type=int,
-        default="n_samples",
+        default=50,
         help="n samples for mc dropout",
     )
     parser.add_argument(

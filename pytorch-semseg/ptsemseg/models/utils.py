@@ -31,12 +31,12 @@ class conv2DBatchNorm(nn.Module):
         )
 
         if is_batchnorm:
-            self.cbr_unit = nn.Sequential(conv_mod, nn.BatchNorm2d(int(n_filters)))
+            self.cb_unit = nn.Sequential(conv_mod, nn.BatchNorm2d(int(n_filters)))
         else:
-            self.cbr_unit = nn.Sequential(conv_mod)
+            self.cb_unit = nn.Sequential(conv_mod)
 
     def forward(self, inputs):
-        outputs = self.cbr_unit(inputs)
+        outputs = self.cb_unit(inputs)
         return outputs
 
 

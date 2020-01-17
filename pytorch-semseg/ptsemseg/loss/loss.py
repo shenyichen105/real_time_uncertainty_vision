@@ -83,11 +83,36 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
 
     #no mask so learns teacher's prediction even for masked class and pixels
     
-    #mask = (gt_target != ignore_index)
-    #mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
-    #nll = nll.flatten()[mask.flatten()]
+    mask = (gt_target != ignore_index)
+    mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
+    nll = nll.flatten()[mask.flatten()]
     if size_average:
         loss = nll.mean()
     else:
         loss = nll.sum()
     return loss
+
+    def nll_laplace_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index, weight=None, size_average=True):
+        # mean, var are (b, c, h, w ) tensor
+        # mask is (b, h, w) tensor
+        # assume diagonal convariance matrix
+        
+        pred_var = torch.exp(pred_logvar) + 1e-15
+        #nll = ((soft_target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
+
+        nll = 0.5*pred_logvar + 0.5* torch.log(2) + torch.abs(soft_target - pred_mean) /torch.sqrt((0.5 * torch.exp(pred_var)))
+
+        if weight is not None:
+            weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
+            nll = nll * weight_tensor
+
+        #no mask so learns teacher's prediction even for masked class and pixels
+        
+        mask = (gt_target != ignore_index)
+        mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
+        nll = nll.flatten()[mask.flatten()]
+        if size_average:
+            loss = nll.mean()
+        else:
+            loss = nll.sum()
+        return loss
