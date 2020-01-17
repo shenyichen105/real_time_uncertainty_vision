@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from ptsemseg.models.utils import segnetDown2, segnetDown3, segnetUp2, segnetUp3
+from ptsemseg.models.utils import segnetDown2, segnetDown3, segnetUp2,segnetUp2Linear, segnetUp3
 
 
 class segnet(nn.Module):
@@ -31,7 +31,7 @@ class segnet(nn.Module):
         else:
             self.up1 = segnetUp2(64, n_classes)
             if self.is_student:
-                self.up1_logvar = segnetUp2(64, n_classes)
+                self.up1_logvar = segnetUp2Linear(64, n_classes)
             if self.add_dropout:
                 self.dropout = nn.Dropout(p=self.dropout_rate)
 

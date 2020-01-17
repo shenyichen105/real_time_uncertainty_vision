@@ -31,12 +31,12 @@ class conv2DBatchNorm(nn.Module):
         )
 
         if is_batchnorm:
-            self.cb_unit = nn.Sequential(conv_mod, nn.BatchNorm2d(int(n_filters)))
+            self.cbr_unit = nn.Sequential(conv_mod, nn.BatchNorm2d(int(n_filters)))
         else:
-            self.cb_unit = nn.Sequential(conv_mod)
+            self.cbr_unit = nn.Sequential(conv_mod)
 
     def forward(self, inputs):
-        outputs = self.cb_unit(inputs)
+        outputs = self.cbr_unit(inputs)
         return outputs
 
 
@@ -243,6 +243,19 @@ class segnetUp2(nn.Module):
         self.unpool = nn.MaxUnpool2d(2, 2)
         self.conv1 = conv2DBatchNormRelu(in_size, in_size, 3, 1, 1)
         self.conv2 = conv2DBatchNormRelu(in_size, out_size, 3, 1, 1)
+
+    def forward(self, inputs, indices, output_shape):
+        outputs = self.unpool(input=inputs, indices=indices, output_size=output_shape)
+        outputs = self.conv1(outputs)
+        outputs = self.conv2(outputs)
+        return outputs
+
+class segnetUp2Linear(nn.Module):
+    def __init__(self, in_size, out_size):
+        super(segnetUp2Linear, self).__init__()
+        self.unpool = nn.MaxUnpool2d(2, 2)
+        self.conv1 = conv2DBatchNormRelu(in_size, in_size, 3, 1, 1)
+        self.conv2 = conv2DBatchNorm(in_size, out_size, 3, 1, 1)
 
     def forward(self, inputs, indices, output_shape):
         outputs = self.unpool(input=inputs, indices=indices, output_size=output_shape)

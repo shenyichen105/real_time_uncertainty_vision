@@ -62,7 +62,7 @@ def sample_from_teacher(teacher_model, input, n_sample=5):
     all_samples = []
     for i in range(n_sample):
         all_samples.append(teacher_model(input).detach())
-    all_samples = torch.cat(all_samples, 0).to(input.device)
+    #all_samples = torch.cat(all_samples, 0).to(input.device)
     teacher_model.apply(disable_dropout)
     return all_samples
 
@@ -75,18 +75,18 @@ def sample_from_teacher_ensemble(teacher_ensemble, input, n_sample=5):
     for i in range(n_sample):
         teacher_model = teacher_ensemble[i]
         all_samples.append(teacher_model(input).detach())
-    all_samples = torch.cat(all_samples, 0).to(input.device)
+    #all_samples = torch.cat(all_samples, 0).to(input.device)
     return all_samples
 
-def expand_output(output, n_sample=5):
-    assert n_sample > 0
-    #copy the output n_sample times
-    #return an output of [n_sample*batch_size, w, h]
-    all_output = []
-    for i in range(n_sample):
-        all_output.append(output.clone())
-    all_output = torch.cat(all_output).to(output.device)
-    return all_output
+# def expand_output(output, n_sample=5):
+#     assert n_sample > 0
+#     #copy the output n_sample times
+#     #return an output of [n_sample*batch_size, w, h]
+#     all_output = []
+#     for i in range(n_sample):
+#         all_output.append(output.clone())
+#     all_output = torch.cat(all_output).to(output.device)
+#     return all_output
 
 def calculate_mc_statistics(teacher_model, input, n_sample=5):
     # calculate mc mean and var in a memory effecient way
@@ -247,12 +247,15 @@ def train(teacher_cfg, student_cfg, writer, logger):
             optimizer.zero_grad()
             pred_mean, pred_logvar = student_model(images) 
             
-            pred_mean = expand_output(pred_mean, n_sample=n_sample)
-            pred_logvar = expand_output(pred_logvar, n_sample=n_sample)
-
-            nll_loss = soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_labels, gt_target=expand_output(gt_labels, n_sample=n_sample), ignore_index=ignore_index[0])
-            gt_loss = loss_fn(input=pred_mean[:batch_size], target=gt_labels, ignore_index=ignore_index[0])
+            # pred_mean = expand_output(pred_mean, n_sample=n_sample)
+            # pred_logvar = expand_output(pred_logvar, n_sample=n_sample)
+            nll_loss = 0
+            for soft_label in soft_labels:
+                nll_loss += soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_label, gt_target=gt_labels, ignore_index=ignore_index[0])
             
+            #gt_loss = loss_fn(input=pred_mean[:batch_size], target=gt_labels, ignore_index=ignore_index[0])
+            gt_loss = loss_fn(input=pred_mean, target=gt_labels, ignore_index=ignore_index[0])
+            nll_loss /= float(n_sample)
             loss = nll_loss + gt_ratio * gt_loss
             loss.backward()
             optimizer.step()
@@ -373,7 +376,7 @@ if __name__ == "__main__":
 
     run_id = int(run_id[:5])
     if args.test:
-        student_run_id = 0
+        student_run_id = 1
     else:
         student_run_id = random.randint(1, 100000)
     #student_run_id = 998

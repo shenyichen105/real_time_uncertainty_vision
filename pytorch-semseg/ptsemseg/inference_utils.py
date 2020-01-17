@@ -68,7 +68,7 @@ def calculate_softmax_jacobian(softmax_output):
     jacobian = diag - outer
     return jacobian
     
-def propogate_logit_uncertainty(softmax_output, logits_var):
+def propagate_logit_uncertainty(softmax_output, logits_var):
     """
     cpu (numpy) version 
     """
@@ -77,7 +77,32 @@ def propogate_logit_uncertainty(softmax_output, logits_var):
     #diag covariance matrix shape: HWCC
     diag_var = np.zeros(jacobian.shape)
     diag_var[:,:, np.arange(jacobian.shape[2]), np.arange(jacobian.shape[2])] = logits_var
-    #propogated convariance matrix shape: HWCC
+    #propagated convariance matrix shape: HWCC
     var_propagated = np.matmul(jacobian_t, np.matmul(diag_var, jacobian))
     return var_propagated 
 
+def propagate_logit_uncertainty_gpu(logits_mean, logits_var):
+    """
+    gpu (pytorch) version to propagate uncertainty
+    """
+    with torch.no_grad():
+        softmax_func = nn.Softmax(dim=1)
+        #NCHW -> NHWC
+        softmax_output = softmax_func(logits_mean).permute(0,2,3,1)
+        logits_var = logits_var.permute(0,2,3,1)
+        #calulating jacobian matrix
+        outer = torch.einsum("nijk,nijl->nijkl",softmax_output, softmax_output)
+        diag = torch.zeros(outer.size(), dtype=outer.dtype, device=outer.device)
+        diag[:,:,:, torch.arange(0, outer.size()[3], dtype=torch.long),torch.arange(0, outer.size()[3], dtype=torch.long)] = softmax_output
+        jacobian = diag - outer
+       
+        #calculating variance
+        jacobian_t = torch.transpose(jacobian, 3,4)
+        diag_var = torch.zeros(outer.size(), dtype=outer.dtype, device=outer.device)
+        
+        diag_var[:,:,:, torch.arange(0, outer.size()[3], dtype=torch.long),torch.arange(0, outer.size()[3], dtype=torch.long)] = torch.exp(logits_var)
+        var_propagated = torch.matmul(jacobian_t, torch.matmul(diag_var, jacobian))
+        return var_propagated, softmax_output
+        
+
+        

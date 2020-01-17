@@ -11,7 +11,7 @@ from ptsemseg.models import get_model
 from ptsemseg.loader import get_loader
 from ptsemseg.metrics import runningScore, runningUncertaintyScore
 from ptsemseg.utils import convert_state_dict
-from ptsemseg.inference_utils import propogate_logit_uncertainty, mc_inference
+from ptsemseg.inference_utils import propagate_logit_uncertainty, mc_inference, propagate_logit_uncertainty_gpu
 
 import pickle
 import os
@@ -34,20 +34,35 @@ def inference_teacher_model(model, images, n_samples=50):
     del all_sm_output
     return pred,softmax_output, softmax_var_mc, avg_entropy 
 
-def inference_student_model(model, images):
+def inference_student_model(model, images, propagation_mode="gpu"):
     """
     inference on one image batch size =1
     pred_mean NCHW with N=1
+
+    propagation_mode:
+                    gpu -> using pytorch to compute jacobian and var propagation
+                    sample -> mc estimate of variance
     """
     pred_mean, pred_logvar = model(images)
-    pred = pred_mean.data.max(1)[1].cpu().numpy()
-    #HWC
-    softmax_func = nn.Softmax(dim=1)
-    softmax_output = np.squeeze(softmax_func(pred_mean).data.cpu().numpy(), axis=0).transpose(1,2,0)
-    logits_var = np.exp(np.squeeze(pred_logvar.data.cpu().numpy(), axis=0).transpose(1,2,0))
-    #uncertainty propagation (#need to implement an pytorch version)
+    pred = pred_mean.data.max(1)[1]
     
-    softmax_var_propagated = propogate_logit_uncertainty(softmax_output, logits_var)
+    # if propagation_mode == "cpu":
+    #     logits_var = np.exp(np.squeeze(pred_logvar.data.cpu().numpy(), axis=0).transpose(1,2,0))
+    #     #uncertainty propagation (#need to implement an pytorch version)
+    #     softmax_var_propagated = propagate_logit_uncertainty(softmax_output, logits_var)
+    if propagation_mode == "gpu":
+        softmax_var_propagated, softmax_output = propagate_logit_uncertainty_gpu(pred_mean,  pred_logvar)
+        #HWC
+    elif propagation_mode == "sample":
+        n_sample = 50
+        with torch.no_grad():
+            softmax_output = nn.Softmax(dim=1)(pred_mean).permute(0,2,3,1)
+            rand_tensor =  torch.randn(pred_mean.size(0), n_sample, pred_mean.size(1), 
+                            pred_mean.size(2), pred_mean.size(3), device=pred_mean.device)
+
+            rand_logistic = rand_tensor * torch.exp(0.5*pred_logvar.unsqueeze(1)) \
+                            + pred_mean.unsqueeze(1)    
+            softmax_var_propagated = torch.var(nn.Softmax(dim=2)(rand_logistic).permute(0,1,3,4,2), dim=1)
     return pred, softmax_output, softmax_var_propagated
 
 def calculate_student_agg_var(softmax_var, method="l2"):
@@ -55,8 +70,19 @@ def calculate_student_agg_var(softmax_var, method="l2"):
     given a covariance matrix for softmax output calculate the aggregate variance per image
     """
     if method == "l2":
-        softmax_var[softmax_var < 1e-10] =0
-        agg_var = np.sqrt(np.einsum('ijkl, ijkl -> ij', softmax_var, softmax_var))
+        softmax_var[softmax_var < 1e-50] =0
+        agg_var = np.sqrt(np.einsum('nijkl, nijkl -> nij', softmax_var, softmax_var))
+    else:
+        raise NotImplementedError("haven't implemented this aggregation method")
+    return agg_var
+
+def calculate_student_agg_var1d(softmax_var, method="l2"):
+    """
+    given a covariance matrix for softmax output calculate the aggregate variance per image
+    """
+    if method == "l2":
+        softmax_var[softmax_var < 1e-50] =0
+        agg_var = np.mean(np.sqrt(softmax_var), axis= -1)
     else:
         raise NotImplementedError("haven't implemented this aggregation method")
     return agg_var
@@ -120,7 +146,7 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_propagated = inference_student_model(model, images)
+        pred, softmax_output, softmax_var_propagated = inference_student_model(model, images, propagation_mode=args.propagate_mode)
         
         if args.measure_time:
             elapsed_time = timeit.default_timer() - start_time
@@ -130,8 +156,14 @@ def validate(cfg, args):
                     i + 1, pred.shape[0] / elapsed_time
                 )
             )
-        agg_var = np.expand_dims(calculate_student_agg_var(softmax_var_propagated), axis=0)
-        softmax_output = np.expand_dims(softmax_output, axis=0)
+        pred = pred.cpu().numpy()
+        softmax_output = softmax_output.cpu().numpy()
+        softmax_var_propagated = softmax_var_propagated.data.cpu().numpy()
+
+        if args.propagate_mode == "gpu":
+            agg_var = calculate_student_agg_var(softmax_var_propagated)
+        elif args.propagate_mode == "sample":
+            agg_var = calculate_student_agg_var1d(softmax_var_propagated)
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
 
@@ -194,6 +226,13 @@ if __name__ == "__main__":
         type=str,
         default="fcn8s_pascal_1_26.pkl",
         help="Path to the saved model",
+    )
+    parser.add_argument(
+        "--propagate_mode",
+        "-p",
+        type=str,
+        default="gpu",
+        help="mode to propagate the variance from logits space to softmax",
     )
 
     parser.add_argument(

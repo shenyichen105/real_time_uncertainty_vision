@@ -74,15 +74,18 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
     # mask is (b, h, w) tensor
     # assume diagonal convariance matrix
     
-    pred_var = torch.exp(pred_logvar) + 1e-7
+    pred_var = torch.exp(pred_logvar) + 1e-15
     log_std = 0.5* pred_logvar
     nll = ((soft_target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
     if weight is not None:
         weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
         nll = nll * weight_tensor
-    mask = (gt_target != ignore_index)
-    mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
-    nll = nll.flatten()[mask.flatten()]
+
+    #no mask so learns teacher's prediction even for masked class and pixels
+    
+    #mask = (gt_target != ignore_index)
+    #mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
+    #nll = nll.flatten()[mask.flatten()]
     if size_average:
         loss = nll.mean()
     else:

@@ -21,7 +21,7 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 torch.backends.cudnn.benchmark = True
 
-def inference_teacher_model(model, images,  mode="mc", n_samples=50):
+def inference_teacher_model(model, images,  mode="mc", n_samples=25):
     """
     inference on one image (batch_size =1)
     n_samples: number of samples for mc dropout (mc mode only)
@@ -142,7 +142,7 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images, mode=args.mode)
+        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
         uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
                         avg_entropy, method=mt), axis=0) for mt in uncertainty_metrics}
 
@@ -223,6 +223,13 @@ if __name__ == "__main__":
         type=str,
         default="configs/fcn8s_pascal.yml",
         help="Config file to be used",
+    )
+    parser.add_argument(
+        "--n_samples",
+        nargs="?",
+        type=int,
+        default="n_samples",
+        help="n samples for mc dropout",
     )
     parser.add_argument(
         "--model_path",
