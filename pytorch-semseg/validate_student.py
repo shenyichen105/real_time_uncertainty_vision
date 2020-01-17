@@ -36,9 +36,6 @@ def inference_teacher_model(model, images, n_samples=50):
 
 def inference_student_model(model, images, propagation_mode="gpu"):
     """
-    inference on one image batch size =1
-    pred_mean NCHW with N=1
-
     propagation_mode:
                     gpu -> using pytorch to compute jacobian and var propagation
                     sample -> mc estimate of variance
@@ -231,7 +228,7 @@ if __name__ == "__main__":
         "--propagate_mode",
         "-p",
         type=str,
-        default="gpu",
+        default="sample",
         help="mode to propagate the variance from logits space to softmax",
     )
 

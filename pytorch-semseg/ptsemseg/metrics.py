@@ -59,13 +59,16 @@ class runningUncertaintyScore(object):
         self.scale_uncertainty = scale_uncertainty
         self.name = name
         self.ece = 0
-        self.ause = 0
-        self.auc_miss = 0
+        #self.ause = 0
+        #self.auc_miss = 0
         #TODO add other metrics
         self.count  = 0
 
         self.brier_score = np.array([])
-        self.uncertainty = np.array([])
+        self.uncertainty = np.array([]) 
+        self.label_true = np.array([])
+        self.label_pred = np.array([])
+        self.conf = np.array([])
 
     def _calculate_brier_score(self, label_true, softmax_output):
         """
@@ -148,13 +151,16 @@ class runningUncertaintyScore(object):
             uc = uc[idx]
             conf = conf[idx]
             sm = sm[idx]
-            self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, conf))/float(self.count + 1)
-            self.ause = (self.ause * self.count + self.get_ause(lt, lp, uc, sm))/float(self.count + 1)
-            self.auc_miss = (self.auc_miss * self.count + self._calculate_auc_misdetection(lt, lp, uc))/float(self.count + 1)
+            #self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, conf))/float(self.count + 1)
+            #self.ause = (self.ause * self.count + self.get_ause(lt, lp, uc, sm))/float(self.count + 1)
+            #self.auc_miss = (self.auc_miss * self.count + self._calculate_auc_misdetection(lt, lp, uc))/float(self.count + 1)
             self.count+=1
 
-            #self.brier_score = np.concatenate([self.brier_score, self._calculate_brier_score(lt, sm)])
-            #self.uncertainty = np.concatenate([self.uncertainty, uc])
+            self.brier_score = np.concatenate([self.brier_score, self._calculate_brier_score(lt, sm)])
+            self.uncertainty = np.concatenate([self.uncertainty, uc])
+            self.label_true = np.concatenate([self.label_true, lt])
+            self.label_pred = np.concatenate([self.label_pred, lp])
+            self.conf = np.concatenate([self.conf, conf])
 
     def get_scores(self):
         """Returns accuracy score evaluation result.
@@ -163,11 +169,12 @@ class runningUncertaintyScore(object):
             - mean IU
             - fwavacc
         """
-        ece = self.ece
-        ause = self.ause
-        auc_miss = self.auc_miss
-        #ause = self._calculate_ause(self.uncertainty, self.brier_score)
-
+        #ece = self.ece
+        #ause = self.ause
+        #auc_miss = self.auc_miss
+        ece = self.get_caliberation_errors(self.label_true, self.label_pred, self.conf)
+        ause = self._calculate_ause(self.uncertainty, self.brier_score)
+        auc_miss = self._calculate_auc_misdetection(self.label_true, self.label_pred, self.uncertainty)
         return (
             {
                 "Overall ECE using max class score in the softmax:" + self.name + ": \t": ece,
