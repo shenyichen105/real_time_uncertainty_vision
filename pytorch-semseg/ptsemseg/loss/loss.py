@@ -81,8 +81,6 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
         weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
         nll = nll * weight_tensor
 
-    #no mask so learns teacher's prediction even for masked class and pixels
-    
     mask = (gt_target != ignore_index)
     mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
     nll = nll.flatten()[mask.flatten()]
@@ -92,27 +90,29 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
         loss = nll.sum()
     return loss
 
-    def nll_laplace_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index, weight=None, size_average=True):
-        # mean, var are (b, c, h, w ) tensor
-        # mask is (b, h, w) tensor
-        # assume diagonal convariance matrix
-        
-        pred_var = torch.exp(pred_logvar) + 1e-15
-        #nll = ((soft_target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
+def nll_laplace_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index, weight=None, size_average=True):
+    # mean, var are (b, c, h, w ) tensor
+    # mask is (b, h, w) tensor
+    # assume diagonal convariance matrix
+    print(pred_mean[0,:,0,0])
+    print(pred_logvar[0,:,0,0])
+    
+    pred_var = torch.exp(pred_logvar) + 1e-10
+    #nll = ((soft_target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
 
-        nll = 0.5*pred_logvar + 0.5* torch.log(2) + torch.abs(soft_target - pred_mean) /torch.sqrt((0.5 * torch.exp(pred_var)))
-
-        if weight is not None:
-            weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
-            nll = nll * weight_tensor
-
-        #no mask so learns teacher's prediction even for masked class and pixels
-        
-        mask = (gt_target != ignore_index)
-        mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
-        nll = nll.flatten()[mask.flatten()]
-        if size_average:
-            loss = nll.mean()
-        else:
-            loss = nll.sum()
-        return loss
+    nll = 0.5*pred_logvar + 0.5* math.log(2) + torch.abs(soft_target - pred_mean) /torch.sqrt((0.5 * torch.exp(pred_var)))
+    print(nll[0,:,0,0])
+    print(pred_var[0,:,0,0])
+    if weight is not None:
+        weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
+        nll = nll * weight_tensor
+    
+    mask = (gt_target != ignore_index)
+    mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
+    nll = nll.flatten()[mask.flatten()]
+    if size_average:
+        loss = nll.mean()
+    else:
+        loss = nll.sum()
+    print(loss)
+    return loss
