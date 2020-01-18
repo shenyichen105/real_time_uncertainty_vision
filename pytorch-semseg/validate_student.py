@@ -21,19 +21,6 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 torch.backends.cudnn.benchmark = True
 
-def inference_teacher_model(model, images, n_samples=50):
-    #monte carlo inference on teacher 
-    pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images)
-    softmax_output = pred_mean.cpu().numpy().transpose(1,2,0)
-    pred = pred_mean.data.max(0)[1].cpu().numpy()
-    softmax_var_mc = pred_var_sm.data.cpu().numpy().transpose(1,2,0)
-    
-    #calculate entropy of teacher 
-    all_sm_output = all_sm_output.data.cpu().numpy().transpose(0,2,3,1)
-    avg_entropy = np.mean(-np.einsum('nijk, nijl -> nij', all_sm_output, np.log(all_sm_output+1e-15))/all_sm_output.shape[3], axis = 0)
-    del all_sm_output
-    return pred,softmax_output, softmax_var_mc, avg_entropy 
-
 def inference_student_model(model, images, propagation_mode="gpu"):
     """
     propagation_mode:
@@ -49,18 +36,27 @@ def inference_student_model(model, images, propagation_mode="gpu"):
     #     softmax_var_propagated = propagate_logit_uncertainty(softmax_output, logits_var)
     if propagation_mode == "gpu":
         softmax_var_propagated, softmax_output = propagate_logit_uncertainty_gpu(pred_mean,  pred_logvar)
+        #can't estimate average entropy using error propagation
+        avg_entropy = None
         #HWC
     elif propagation_mode == "sample":
-        n_sample = 50
+        n_sample = 100
         with torch.no_grad():
-            softmax_output = nn.Softmax(dim=1)(pred_mean).permute(0,2,3,1)
+            #softmax_output_mean = nn.Softmax(dim=1)(pred_mean).permute(0,2,3,1)
+            #rand tensor shape (n,m, c, h, w) m is the # of samples per data point
             rand_tensor =  torch.randn(pred_mean.size(0), n_sample, pred_mean.size(1), 
                             pred_mean.size(2), pred_mean.size(3), device=pred_mean.device)
 
             rand_logistic = rand_tensor * torch.exp(0.5*pred_logvar.unsqueeze(1)) \
-                            + pred_mean.unsqueeze(1)    
-            softmax_var_propagated = torch.var(nn.Softmax(dim=2)(rand_logistic).permute(0,1,3,4,2), dim=1)
-    return pred, softmax_output, softmax_var_propagated
+                            + pred_mean.unsqueeze(1)  
+            softmax_output_sampled = nn.Softmax(dim=2)(rand_logistic).permute(0,1,3,4,2)
+            entropy = -torch.sum(softmax_output_sampled * torch.log(softmax_output_sampled + 1e-9), dim=-1)/softmax_output_sampled.size()[-1]
+            
+            softmax_var_propagated = torch.var(softmax_output_sampled, dim=1)
+            softmax_mean_propagated = torch.mean(softmax_output_sampled, dim=1)
+            
+            avg_entropy = torch.mean(entropy, dim=1)
+    return pred, softmax_mean_propagated, softmax_var_propagated, avg_entropy
 
 def calculate_student_agg_var(softmax_var, method="l2"):
     """
@@ -80,9 +76,17 @@ def calculate_student_agg_var1d(softmax_var, method="l2"):
     if method == "l2":
         softmax_var[softmax_var < 1e-50] =0
         agg_var = np.mean(np.sqrt(softmax_var), axis= -1)
+        #agg_var = np.sqrt(np.sum(softmax_var * softmax_var, axis=-1))
     else:
         raise NotImplementedError("haven't implemented this aggregation method")
     return agg_var
+
+def calculate_student_mutual_information1d(softmax_output, avg_entropy):
+    """
+    given a avg entropy and softmax calculate mutual information 
+    """
+    mean_entropy = -np.sum(softmax_output * np.log(softmax_output+1e-9), axis=-1)/softmax_output.shape[-1]
+    return mean_entropy-avg_entropy
 
 def validate(cfg, args):
 
@@ -143,7 +147,7 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_propagated = inference_student_model(model, images, propagation_mode=args.propagate_mode)
+        pred, softmax_output, softmax_var_propagated, avg_entropy = inference_student_model(model, images, propagation_mode=args.propagate_mode)
         
         if args.measure_time:
             elapsed_time = timeit.default_timer() - start_time
@@ -155,17 +159,21 @@ def validate(cfg, args):
             )
         pred = pred.cpu().numpy()
         softmax_output = softmax_output.cpu().numpy()
+        avg_entropy = avg_entropy.cpu().numpy()
         softmax_var_propagated = softmax_var_propagated.data.cpu().numpy()
 
         if args.propagate_mode == "gpu":
-            agg_var = calculate_student_agg_var(softmax_var_propagated)
+            #error propagation: using  norm of the covariance matrix as uncertainty
+            agg_uncertainty = calculate_student_agg_var(softmax_var_propagated)
         elif args.propagate_mode == "sample":
-            agg_var = calculate_student_agg_var1d(softmax_var_propagated)
+            #error propagation: using mutual information as uncertainty 
+            agg_uncertainty = calculate_student_agg_var1d(softmax_var_propagated)
+            #agg_uncertainty =  calculate_student_mutual_information1d(softmax_output, avg_entropy)
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
 
         running_metrics.update(gt, pred)
-        running_uncertainty_metrics.update(gt, pred, softmax_output, agg_var)
+        running_uncertainty_metrics.update(gt, pred, softmax_output, agg_uncertainty)
 
     score, class_iou = running_metrics.get_scores()
     score_uncertainty = running_uncertainty_metrics.get_scores()

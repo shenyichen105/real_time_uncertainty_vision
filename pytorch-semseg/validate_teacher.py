@@ -43,13 +43,12 @@ def calculate_teacher_uncertainty(softmax_output, softmax_var, avg_entropy,metho
     given a mc variance for softmax output calculate the aggregate variance per image
     """
     if method == "var_std":
-        uncertainty = np.sqrt(np.einsum('ijk, ijk -> ij', softmax_var, softmax_var))
+        uncertainty = np.mean(np.sqrt(softmax_var), axis= -1)
     elif method == "entropy":
-        uncertainty = -np.einsum('ijk, ijl -> ij', softmax_var, np.log(softmax_var+1e-15))
+        uncertainty = -np.sum(softmax_output * np.log(softmax_output+1e-9), axis=-1)/softmax_output.shape[-1]
     elif method == "mutual_information":
-        entropy_x = -np.einsum('ijk, ijl -> ij', softmax_var, np.log(softmax_var+1e-15))
-        avg_entropy_xi = avg_entropy
-        uncertainty =  entropy_x  - avg_entropy_xi
+        entropy_x = -np.sum(softmax_output * np.log(softmax_output+1e-9), axis=-1)/softmax_output.shape[-1]
+        uncertainty =  entropy_x  - avg_entropy
     elif method =="lc":
         uncertainty = 1- np.max(softmax_output, axis = 2)
     else:
@@ -86,7 +85,7 @@ def validate(cfg, args):
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
     #setting up uncertainty metrics
     #uncertainty_metrics = ["var_std", "lc", "entropy", "mutual_information"]
-    uncertainty_metrics = ["var_std"]
+    uncertainty_metrics = ["mutual_information"]
     running_uncertainty_metrics = {}
     for mt in uncertainty_metrics:
     #     if mt == "lc":
@@ -151,7 +150,7 @@ def validate(cfg, args):
         
         #calculate entropy of teacher 
         all_sm_output = all_sm_output.data.cpu().numpy().transpose(0,2,3,1)
-        avg_entropy = np.mean(-np.einsum('nijk, nijl -> nij', all_sm_output, np.log(all_sm_output+1e-15))/all_sm_output.shape[3], axis = 0)
+        avg_entropy = -np.mean(np.sum(all_sm_output *np.log(all_sm_output+1e-9), axis=-1)/all_sm_output.shape[3], axis = 0)
         del all_sm_output
 
         uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
