@@ -134,6 +134,11 @@ def validate(cfg, args):
 
         #     pred = np.argmax(outputs, axis=1)
         pred_mean, pred_var_sm, all_sm_output  = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
+        
+        with torch.no_grad():
+            all_sm_output = all_sm_output.permute(0,2,3,1)
+            avg_entropy = -torch.mean(torch.sum(all_sm_output *torch.log(all_sm_output+1e-9), dim=-1)/all_sm_output.size()[3], dim = 0)
+            del all_sm_output
 
         if args.measure_time:
             elapsed_time = timeit.default_timer() - start_time
@@ -149,10 +154,7 @@ def validate(cfg, args):
         softmax_var_mc = pred_var_sm.data.cpu().numpy().transpose(1,2,0)
         
         #calculate entropy of teacher 
-        all_sm_output = all_sm_output.data.cpu().numpy().transpose(0,2,3,1)
-        avg_entropy = -np.mean(np.sum(all_sm_output *np.log(all_sm_output+1e-9), axis=-1)/all_sm_output.shape[3], axis = 0)
-        del all_sm_output
-
+        avg_entropy = avg_entropy.cpu().numpy()
         uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
                         avg_entropy, method=mt), axis=0) for mt in uncertainty_metrics}
 
