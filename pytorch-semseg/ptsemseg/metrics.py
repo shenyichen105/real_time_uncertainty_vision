@@ -175,11 +175,13 @@ class runningUncertaintyScore(object):
         ece = self.get_caliberation_errors(self.label_true, self.label_pred, self.conf)
         ause = self._calculate_ause(self.uncertainty, self.brier_score)
         auc_miss = self._calculate_auc_misdetection(self.label_true, self.label_pred, self.uncertainty)
+        #uc_mean = self.uncertainty.mean()
         return (
             {
                 "Overall ECE using max class score in the softmax:" + self.name + ": \t": ece,
                 "mean AUSE using brier score as oracle:" + self.name + ": \t": ause,
                 "mean AUC_misdetect:" + self.name + ": \t": auc_miss,
+                #"mean uncertainty": uc_mean
             }
         )
 

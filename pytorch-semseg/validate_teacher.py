@@ -19,7 +19,7 @@ from functools import partial
 
 pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
-torch.backends.cudnn.benchmark = True
+#torch.backends.cudnn.benchmark = True
 
 def inference_teacher_model(model, images,  mode="mc", n_samples=25):
     """
@@ -85,7 +85,7 @@ def validate(cfg, args):
     running_metrics = runningScore(n_classes, ignore_index=ignore_index[0])
     #setting up uncertainty metrics
     #uncertainty_metrics = ["var_std", "lc", "entropy", "mutual_information"]
-    uncertainty_metrics = ["mutual_information"]
+    uncertainty_metrics = ["var_std",  "mutual_information"]
     running_uncertainty_metrics = {}
     for mt in uncertainty_metrics:
     #     if mt == "lc":
@@ -133,19 +133,23 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred_mean, pred_var_sm, all_sm_output  = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
+        with torch.autograd.profiler.profile(use_cuda=True) as prof:
+            pred_mean, pred_var_sm, all_sm_output  = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
+            
+            with torch.no_grad():
+                all_sm_output = all_sm_output.permute(0,2,3,1)
+                avg_entropy = -torch.mean(torch.sum(all_sm_output *torch.log(all_sm_output+1e-9), dim=-1)/all_sm_output.size()[3], dim = 0)
+                del all_sm_output
         
-        with torch.no_grad():
-            all_sm_output = all_sm_output.permute(0,2,3,1)
-            avg_entropy = -torch.mean(torch.sum(all_sm_output *torch.log(all_sm_output+1e-9), dim=-1)/all_sm_output.size()[3], dim = 0)
-            del all_sm_output
+        cuda_time = sum([item.cuda_time for item in prof.function_events])/1000.0
+        gpu_time = sum([item.cpu_time for item in prof.function_events])/1000.0
 
         if args.measure_time:
             elapsed_time = timeit.default_timer() - start_time
             print(
                 "Inference time \
-                  (iter {0:5d}): {1:3.5f} fps".format(
-                    i + 1, pred_mean.size()[0] / elapsed_time
+                  (iter {0:5d}):\t\t\t\tCUDA time total {1:.2f}ms;\t\t\t\tCPU time total {2:.2f}ms".format(
+                    i + 1, cuda_time, gpu_time
                 )
             )
         
@@ -166,7 +170,7 @@ def validate(cfg, args):
         for mt in running_uncertainty_metrics:
             uc = uncertainty[mt]
             running_uncertainty_metrics[mt].update(gt, pred, softmax_output, uc)
-            
+        
     score, class_iou = running_metrics.get_scores()
     
     for k, v in score.items():
@@ -292,13 +296,13 @@ if __name__ == "__main__":
         help="Enable evaluation with time (fps) measurement |\
                               True by default",
     )
-    parser.add_argument(
-        "--no-measure_time",
-        dest="measure_time",
-        action="store_false",
-        help="Disable evaluation with time (fps) measurement |\
-                              True by default",
-    )
+    # parser.add_argument(
+    #     "--no-measure_time",
+    #     dest="measure_time",
+    #     action="store_false",
+    #     help="Disable evaluation with time (fps) measurement |\
+    #                           True by default",
+    # )
     parser.set_defaults(measure_time=True)
 
     args = parser.parse_args()

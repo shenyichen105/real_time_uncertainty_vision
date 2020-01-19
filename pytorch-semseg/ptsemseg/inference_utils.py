@@ -81,7 +81,7 @@ def propagate_logit_uncertainty(softmax_output, logits_var):
     var_propagated = np.matmul(jacobian_t, np.matmul(diag_var, jacobian))
     return var_propagated 
 
-def propagate_logit_uncertainty_gpu(logits_mean, logits_var):
+def propagate_logit_uncertainty_gpu(logits_mean, logits_logvar):
     """
     gpu (pytorch) version to propagate uncertainty
     """
@@ -89,7 +89,7 @@ def propagate_logit_uncertainty_gpu(logits_mean, logits_var):
         softmax_func = nn.Softmax(dim=1)
         #NCHW -> NHWC
         softmax_output = softmax_func(logits_mean).permute(0,2,3,1)
-        logits_var = logits_var.permute(0,2,3,1)
+        logits_logvar = logits_logvar.permute(0,2,3,1)
         #calulating jacobian matrix
         outer = torch.einsum("nijk,nijl->nijkl",softmax_output, softmax_output)
         diag = torch.zeros(outer.size(), dtype=outer.dtype, device=outer.device)
@@ -100,9 +100,33 @@ def propagate_logit_uncertainty_gpu(logits_mean, logits_var):
         jacobian_t = torch.transpose(jacobian, 3,4)
         diag_var = torch.zeros(outer.size(), dtype=outer.dtype, device=outer.device)
         
-        diag_var[:,:,:, torch.arange(0, outer.size()[3], dtype=torch.long),torch.arange(0, outer.size()[3], dtype=torch.long)] = torch.exp(logits_var)
+        diag_var[:,:,:, torch.arange(0, outer.size()[3], dtype=torch.long),torch.arange(0, outer.size()[3], dtype=torch.long)] = torch.exp(logits_logvar)
         var_propagated = torch.matmul(jacobian_t, torch.matmul(diag_var, jacobian))
         return var_propagated, softmax_output
-        
+
+def sample_gaussian_logits(logits_mean, logits_logvar, n_sample):
+    """
+    sample logits from a gaussain prior 
+    rand tensor shape (n,m, c, h, w) m is the # of samples per data point
+    """
+    rand_tensor =  torch.randn(logits_mean.size(0), n_sample, logits_mean.size(1), 
+                logits_mean.size(2), logits_mean.size(3), device=logits_mean.device)
+
+    sampled_logits = rand_tensor * torch.exp(0.5*logits_logvar.unsqueeze(1)) \
+                    + logits_mean.unsqueeze(1)  
+
+    return sampled_logits
+
+def sample_laplace_logits(logits_mean, logits_logvar, n_sample):
+    """
+    sample logits from a laplace prior 
+    rand tensor shape (n,m, c, h, w) m is the # of samples per data point
+    """
+    rand_tensor = torch.empty(logits_mean.size(0), n_sample, logits_mean.size(1), 
+                logits_mean.size(2), logits_mean.size(3), dtype=logits_mean.dtype,
+                 device=logits_mean.device).uniform_(-1+1e-10, 1)
+    scale = torch.sqrt(torch.exp(logits_logvar.unsqueeze(1)) *0.5)
+    sampled_logits = logits_mean.unsqueeze(1)  - scale * rand_tensor.sign() * torch.log1p(-rand_tensor.abs())
+    return sampled_logits
 
         

@@ -394,5 +394,6 @@ if __name__ == "__main__":
                                model_path=saved_model_path, 
                                propagate_mode="sample",
                                measure_time=True,
-                               save_results=True)
+                               save_results=True,
+                               save_results_path=None)
     validate(student_cfg, val_args)
