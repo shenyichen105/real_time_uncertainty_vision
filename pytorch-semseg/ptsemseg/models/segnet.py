@@ -4,13 +4,13 @@ from ptsemseg.models.utils import segnetDown2, segnetDown3, segnetUp2, segnetUp3
 
 
 class segnet(nn.Module):
-    def __init__(self, n_classes=21, in_channels=3, is_unpooling=True, is_student=False, add_dropout=False, dropout_rate=0.1, no_branch_in_last_conv=False):
+    def __init__(self, n_classes=21, in_channels=3, is_unpooling=True, output_var=False, add_dropout=False, dropout_rate=0.1, no_branch_in_last_conv=False):
         super(segnet, self).__init__()
 
         self.in_channels = in_channels
         self.is_unpooling = is_unpooling
         self.add_dropout = add_dropout
-        self.is_student = is_student
+        self.output_var = output_var
         self.dropout_rate = dropout_rate
         #use one conv at the last upsampling layer with double the # of channels to predict mean and logvar
         self.no_branch_in_last_conv = no_branch_in_last_conv
@@ -30,7 +30,7 @@ class segnet(nn.Module):
             self.up1 = segnetUp2(64, 2* n_classes)
         else:
             self.up1 = segnetUp2(64, n_classes)
-            if self.is_student:
+            if self.output_var:
                 self.up1_logvar = segnetUp2(64, n_classes)
             if self.add_dropout:
                 self.dropout = nn.Dropout(p=self.dropout_rate)
@@ -65,7 +65,7 @@ class segnet(nn.Module):
         up2 = self.up2(up3, indices_2, unpool_shape2)
         up1 = self.up1(up2, indices_1, unpool_shape1)
         
-        if self.is_student:
+        if self.output_var:
             if self.no_branch_in_last_conv:
                 up1_mean=up1[:, :self.n_classes, :, : ]
                 up1_logvar =up1[:, self.n_classes:, :, :]

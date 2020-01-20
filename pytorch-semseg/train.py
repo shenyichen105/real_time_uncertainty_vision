@@ -135,9 +135,13 @@ def train(cfg, writer, logger):
             labels = labels.to(device)
 
             optimizer.zero_grad()
-            outputs = model(images)
-
-            loss = loss_fn(input=outputs, target=labels, ignore_index=ignore_index[0])
+            
+            if cfg["model"]["output_var"]:
+                pred_mean, pred_logvar = model(images)
+                loss = loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, target=labels, ignore_index=ignore_index[0])
+            else:
+                outputs = model(images)
+                loss = loss_fn(input=outputs, target=labels, ignore_index=ignore_index[0])
 
             loss.backward()
             optimizer.step()
@@ -166,9 +170,14 @@ def train(cfg, writer, logger):
                     for i_val, (images_val, labels_val) in tqdm(enumerate(valloader)):
                         images_val = images_val.to(device)
                         labels_val = labels_val.to(device)
-
-                        outputs = model(images_val)
-                        val_loss = loss_fn(input=outputs, target=labels_val, ignore_index=ignore_index[0])
+                        
+                        if cfg["model"]["output_var"]:
+                            pred_mean, pred_logvar = model(images_val)
+                            val_loss = loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, target=labels_val, ignore_index=ignore_index[0])
+                            outputs = pred_mean
+                        else:
+                            outputs = model(images_val)
+                            val_loss = loss_fn(input=outputs, target=labels_val, ignore_index=ignore_index[0])
 
                         pred = outputs.data.max(1)[1].cpu().numpy()
                         gt = labels_val.data.cpu().numpy()
@@ -214,6 +223,7 @@ def train(cfg, writer, logger):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="config")
+    parser.add_argument('gpu_num', type=str, help='gpu number')
     parser.add_argument(
         "--config",
         nargs="?",
@@ -223,6 +233,9 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]= args.gpu_num
 
     with open(args.config) as fp:
         cfg = yaml.load(fp)

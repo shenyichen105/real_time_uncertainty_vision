@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import math
-
+import numpy as np
 
 def cross_entropy2d(input, target, weight=None, size_average=True, ignore_index=250):
     n, c, h, w = input.size()
@@ -87,4 +87,45 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
         loss = nll.mean()
     else:
         loss = nll.sum()
+    return loss
+
+def logit_normal_loss(pred_mean, pred_logvar, target, ignore_index, num_samples=15, weight=None, size_average=True):
+    # mean, var are (b, c, h, w ) tensor
+    # mask is (b, h, w) tensor
+    # assume diagonal convariance matrix
+    
+    n, c, h, w = pred_mean.size()
+    nt, ht, wt = target.size()
+    
+    # Handle inconsistent size between input and target
+    if h != ht and w != wt:  # upsample labels
+        pred_mean = F.interpolate(pred_mean, size=(ht, wt), mode="bilinear", align_corners=True)
+        pred_logvar = F.interpolate(pred_logvar, size=(ht, wt), mode="bilinear", align_corners=True)
+    
+    pred_sd = (torch.exp(pred_logvar) + 1e-8)**0.5
+    
+    pred_mean = pred_mean.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
+    pred_sd = pred_sd.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
+    target = target.view(-1)
+    
+    m = torch.distributions.normal.Normal(torch.zeros(pred_mean.size()), torch.ones(pred_mean.size()))
+    
+    pred = torch.zeros(pred_mean.size()).to(pred_mean.device)
+    for i in range(num_samples):
+        gaussian_samples = m.sample().to(pred_mean.device)
+        pred += F.softmax(pred_mean + pred_sd*gaussian_samples, dim=1)
+        
+    #gaussian_samples = np.random.normal( size=(num_samples, pred_mean.size()[0], pred_mean.size()[1]))
+    #gaussian_samples = torch.from_numpy(gaussian_samples).float().to(pred_mean.device)
+    #random_size = [num_samples, pred_mean.size()[0], pred_mean.size()[1]]
+    #m = torch.distributions.normal.Normal(torch.zeros(random_size), torch.ones(random_size))
+    #gaussian_samples = m.sample().to(pred_mean.device)
+    #pred_mean = pred_mean.unsqueeze(0).expand_as(gaussian_samples)
+    #pred_sd = pred_sd.unsqueeze(0).expand_as(gaussian_samples)
+    #pred = pred_mean + pred_sd*gaussian_samples
+    #pred = F.softmax(pred, dim=2).sum(dim=0)
+    
+    pred = torch.log(pred / num_samples + 1e-8)
+    loss = F.nll_loss(pred, target, weight=weight, size_average=size_average, ignore_index=ignore_index)
+
     return loss

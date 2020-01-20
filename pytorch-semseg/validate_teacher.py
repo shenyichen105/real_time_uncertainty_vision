@@ -21,12 +21,12 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 torch.backends.cudnn.benchmark = True
 
-def inference_teacher_model(model, images, n_samples=50):
+def inference_teacher_model(model, images, data_uncertainty=False, n_samples=50):
     """
     inference on one image (batch_size =1)
     """
     #monte carlo inference on teacher 
-    pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images)
+    pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images, data_uncertainty)
     softmax_output = pred_mean.cpu().numpy().transpose(1,2,0)
     pred = pred_mean.data.max(0)[1].cpu().numpy()
     softmax_var_mc = pred_var_sm.data.cpu().numpy().transpose(1,2,0)
@@ -95,6 +95,7 @@ def validate(cfg, args):
     model.load_state_dict(state)
     model.eval()
     model.to(device)
+    data_uncertainty = cfg["model"]["output_var"]
 
     for i, (images, labels) in enumerate(valloader):
         start_time = timeit.default_timer()
@@ -116,7 +117,7 @@ def validate(cfg, args):
         #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
         #     pred = np.argmax(outputs, axis=1)
-        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images)
+        pred, softmax_output, softmax_var_mc, avg_entropy = inference_teacher_model(model, images, data_uncertainty)
         uncertainty = {mt: np.expand_dims(calculate_teacher_uncertainty(softmax_output, softmax_var_mc,\
                         avg_entropy, method=mt), axis=0) for mt in uncertainty_metrics}
 

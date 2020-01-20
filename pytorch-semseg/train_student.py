@@ -144,15 +144,29 @@ def train(teacher_cfg, student_cfg, writer, logger):
     best_iou = -100.0
     i = start_iter
     flag = True
+    data_uncertainty = student_cfg["training"]["teacher_data_uncertainty"]
+    if data_uncertainty:
+        print('Using teacher data uncertainty for training.')
 
-    def sample_from_teacher(teacher_model, input, n_sample=5):
+    def sample_from_teacher(teacher_model, input, n_sample=5, teacher_data_uncertainty=False):
         assert n_sample > 0
         #monte carlo sampling teacher's preedictions
         #return an output of [n_sample*batch_size, w, h] and expanded input
         teacher_model.apply(enable_dropout)
         all_samples = []
+        
         for i in range(n_sample):
-            all_samples.append(teacher_model(input).detach())
+            if teacher_data_uncertainty:
+                teacher_mean, teacher_logvar = teacher_model(input)
+                teacher_mean, teacher_logvar = teacher_mean.detach(), teacher_logvar.detach()
+                teacher_sd = (torch.exp(teacher_logvar) + 1e-8)**0.5
+                m = torch.distributions.normal.Normal(torch.zeros(teacher_mean.size()), torch.ones(teacher_mean.size()))
+                gaussian_samples = m.sample().to(teacher_mean.device)
+                teacher_pred = teacher_mean + teacher_sd*gaussian_samples
+            else:
+                teacher_pred = teacher_model(input).detach()
+            all_samples.append(teacher_pred)
+            
         all_samples = torch.cat(all_samples, 0).to(input.device)
         teacher_model.apply(disable_dropout)
         return all_samples
@@ -199,7 +213,7 @@ def train(teacher_cfg, student_cfg, writer, logger):
            
 
             with torch.no_grad():
-                soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
+                soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample,teacher_data_uncertainty=data_uncertainty)
             optimizer.zero_grad()
             pred_mean, pred_logvar = student_model(images) 
             
@@ -287,6 +301,7 @@ def train(teacher_cfg, student_cfg, writer, logger):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="config")
+    parser.add_argument('gpu_num', type=str, help='gpu number')
     parser.add_argument(
         "--student_cfg",
         nargs="?",
@@ -294,14 +309,19 @@ if __name__ == "__main__":
         help="config file for student model",
     )
     args = parser.parse_args()
+    
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]= args.gpu_num
+    
     with open(args.student_cfg) as fp:
         student_cfg = yaml.load(fp)
     
     teacher_run_folder = student_cfg['training']['teacher_run_folder']
-
+    teacher_cfg = student_cfg['training']['teacher_cfg']
+    
     pf, run_id = os.path.split(teacher_run_folder)
     _, dataset = os.path.split(pf)
-    teacher_config_path = os.path.join(teacher_run_folder, dataset + ".yml")
+    teacher_config_path = os.path.join(teacher_run_folder, teacher_cfg)
     with open(teacher_config_path) as fp:
         teacher_cfg = yaml.load(fp)
 

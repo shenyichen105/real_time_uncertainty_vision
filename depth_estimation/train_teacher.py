@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 cudnn.benchmark = True
 
-from models_dropout import ResNet
+from models_dropout import ResNet, ResNetStudent
 from metrics import AverageMeter, Result
 from dataloaders.dense_to_sparse import UniformSampling, SimulatedStereo
 import criteria
@@ -120,11 +120,20 @@ def main():
         print("=> creating Model ({}-{}) ...".format(args.arch, args.decoder))
         in_channels = len(args.modality)
         if args.arch == 'resnet50':
-            model = ResNet(layers=50, decoder=args.decoder, output_size=train_loader.dataset.output_size,
+            if not args.data_uncertainty:
+                model = ResNet(layers=50, decoder=args.decoder, output_size=train_loader.dataset.output_size,
                 in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p)
+            else:
+                model = ResNetStudent(layers=50, decoder=args.decoder, output_size=train_loader.dataset.output_size,
+                in_channels=in_channels, pretrained=teacher_args.pretrained, dropout_p=args.dropout_p)
         elif args.arch == 'resnet18':
-            model = ResNet(layers=18, decoder=args.decoder, output_size=train_loader.dataset.output_size,
+            if not args.data_uncertainty:
+                model = ResNet(layers=18, decoder=args.decoder, output_size=train_loader.dataset.output_size,
                 in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p)
+            else:
+                model = ResNetStudent(layers=18, decoder=args.decoder, output_size=train_loader.dataset.output_size,
+                in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p)
+                
         print("=> model created.")
         optimizer = torch.optim.SGD(model.parameters(), args.lr, \
             momentum=args.momentum, weight_decay=args.weight_decay)
@@ -137,6 +146,8 @@ def main():
         criterion = criteria.MaskedMSELoss().cuda()
     elif args.criterion == 'l1':
         criterion = criteria.MaskedL1Loss().cuda()
+    if args.data_uncertainty:
+        criterion = criteria.GaussianNLLloss().cuda()
 
     # create results folder, if not already exists
     output_directory = utils.get_output_directory_teacher(args)
@@ -197,8 +208,13 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         # compute pred
         end = time.time()
-        pred = model(input)
-        loss = criterion(pred, target)
+        if args.data_uncertainty:
+            pred, pred_logvar = model(input)
+            loss = criterion(pred, pred_logvar, target)
+        else:
+            pred = model(input)
+            loss = criterion(pred, target)
+            
         optimizer.zero_grad()
         loss.backward() # compute gradient and do SGD step
         optimizer.step()
@@ -236,7 +252,10 @@ def generate_mcdropout_predictions(model, input, n_samples):
     model.apply(utils_student.enable_dropout) #enable dropout in the inference
     pred_dropout = []
     for i in range(n_samples):
-        pred = model(input)
+        if args.data_uncertainty:
+            pred, _ = model(input)
+        else:
+            pred = model(input)
         pred_dropout.append(pred)
     pred_dropout = torch.cat(pred_dropout, 0).detach()
     model.apply(utils_student.disable_dropout)

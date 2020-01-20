@@ -2,13 +2,14 @@ model:
     arch: segnet
     add_dropout: True
     dropout_rate: 0.5
+    output_var: False 
 data:
     dataset: camvid
     train_split: train
     val_split: val
     img_rows: 360
     img_cols: 480
-    path: /home/eddie/dataset/CamVid
+    path: /home/zz452/storage/data/CamVid
     ignore_index: [11]
     
 training:

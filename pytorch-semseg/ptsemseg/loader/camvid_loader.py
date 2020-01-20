@@ -48,12 +48,13 @@ class camvidLoader(data.Dataset):
         img = np.array(img, dtype=np.uint8)
 
         lbl = m.imread(lbl_path)
-        lbl = np.array(lbl, dtype=np.int8)
+        lbl = np.array(lbl, dtype=np.uint8)
 
         if self.augmentations is not None:
             img, lbl = self.augmentations(img, lbl)
 
         if self.is_transform:
+            
             img, lbl = self.transform(img, lbl)
 
         return img, lbl

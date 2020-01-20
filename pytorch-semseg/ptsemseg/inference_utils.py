@@ -13,20 +13,33 @@ def disable_dropout(m):
     if type(m) == torch.nn.Dropout:
         m.eval()
 
-def sample_from_teacher(teacher_model, input, n_sample=5):
+def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False):
     assert n_sample > 0
     #monte carlo sampling teacher's preedictions
     #return an output of [n_sample*batch_size, w, h] and expanded input
     teacher_model.apply(enable_dropout)
     all_samples = []
     for i in range(n_sample):
-        all_samples.append(teacher_model(input).detach())
+        if data_uncertainty:
+            teacher_mean, teacher_logvar = teacher_model(input)
+            print('mean pred:')
+            print(teacher_mean[0,:,0,0])
+            print('variance pred')
+            print(teacher_logvar[0,:,0,0])
+            teacher_mean, teacher_logvar = teacher_mean.detach(), teacher_logvar.detach()
+            teacher_sd = (torch.exp(teacher_logvar) + 1e-7)**0.5
+            m = torch.distributions.normal.Normal(torch.zeros(teacher_mean.size()), torch.ones(teacher_mean.size()))
+            gaussian_samples = m.sample().to(teacher_mean.device)
+            teacher_pred = teacher_mean + teacher_sd*gaussian_samples
+        else:
+            teacher_pred = teacher_model(input).detach()
+        all_samples.append(teacher_pred)    
     all_samples = torch.cat(all_samples, 0).to(input.device)
     teacher_model.apply(disable_dropout)
     return all_samples
 
-def mc_inference(model, input, n_samples=100):
-    output = sample_from_teacher(model, input, n_samples)
+def mc_inference(model, input, data_uncertainty=False, n_samples=100):
+    output = sample_from_teacher(model, input, n_samples, data_uncertainty)
     softmax_func = nn.Softmax(dim=1)
     sm_output = softmax_func(output)
     pred_mean = torch.mean(sm_output,dim=0)

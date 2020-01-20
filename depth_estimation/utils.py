@@ -61,6 +61,7 @@ def parse_command():
                         help='evaluate model on validation set')
     parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
                         help='not to use ImageNet pre-trained weights')
+    parser.add_argument('--data_uncertainty', action="store_true", help='learn data uncertainty')
     parser.set_defaults(pretrained=True)
     args = parser.parse_known_args()[0]
     if args.modality == 'rgb' and args.num_samples != 0:

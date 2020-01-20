@@ -195,7 +195,14 @@ def generate_teacher_predictions(model_teacher, input, n_samples):
     model_teacher.apply(utils_student.enable_dropout) #enable dropout in the inference
     pred_dropout = []
     for i in range(n_samples):
-        pred = model_teacher(input)
+        if teacher_args.data_uncertainty:
+            teacher_mean, teacher_logvar = model_teacher(input)
+            teacher_sd = (torch.exp(teacher_logvar) + 1e-8)**0.5
+            m = torch.distributions.normal.Normal(torch.zeros(teacher_mean.size()), torch.ones(teacher_mean.size()))
+            gaussian_samples = m.sample().to(teacher_mean.device)
+            pred = teacher_mean + teacher_sd*gaussian_samples
+        else:
+            pred = model_teacher(input)
         pred_dropout.append(pred)
     pred_dropout = torch.cat(pred_dropout, 0).detach()
     model_teacher.apply(utils_student.disable_dropout)
