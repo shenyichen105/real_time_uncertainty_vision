@@ -24,6 +24,7 @@ from functools import partial
 pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 #orch.backends.cudnn.benchmark = True
+N_SAMPLE = 50
 
 def inference_student_model(model, images, propagation_mode="gpu", sampling_dist="gaussian"):
     """
@@ -45,7 +46,7 @@ def inference_student_model(model, images, propagation_mode="gpu", sampling_dist
         avg_entropy = None
         #HWC
     elif propagation_mode == "sample":
-        n_sample = 100
+        n_sample = N_SAMPLE
         with torch.no_grad():
             #softmax_output_mean = nn.Softmax(dim=1)(pred_mean).permute(0,2,3,1)
             #rand tensor shape (n,m, c, h, w) m is the # of samples per data point
@@ -141,22 +142,28 @@ def validate(cfg, args):
         start_time = timeit.default_timer()
 
         images = images.to(device)
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        #with torch.autograd.profiler.profile(use_cuda=True) as prof:
 
-        with torch.autograd.profiler.profile(use_cuda=True) as prof:
-            pred, \
-            softmax_output, \
-            softmax_var_propagated, \
-            avg_entropy = inference_student_model(model, images, propagation_mode=args.propagate_mode, sampling_dist=sampling_dist)
+        start.record()
         
-        cuda_time = sum([item.cuda_time for item in prof.function_events])/1000.0
-        gpu_time = sum([item.cpu_time for item in prof.function_events])/1000.0
+        pred, \
+        softmax_output, \
+        softmax_var_propagated, \
+        avg_entropy = inference_student_model(model, images, propagation_mode=args.propagate_mode, sampling_dist=sampling_dist)
+
+        end.record()
+        torch.cuda.synchronize()
+        # cuda_time = sum([evt.cuda_time_total for evt in prof.key_averages()]) / 1000
+        # cpu_time = prof.self_cpu_time_total / 1000
         
         if args.measure_time:
-            elapsed_time = timeit.default_timer() - start_time
+            elapsed_time = start.elapsed_time(end)
             print(
                 "Inference time \
-                  (iter {0:5d}):\t\t\t\tCUDA time total {1:.2f}ms;\t\t\t\tCPU time total {2:.2f}ms".format(
-                    i + 1, cuda_time, gpu_time
+                  (iter {0:5d}):\t\t\t\ttime total {1:.2f}ms".format(
+                    i + 1, elapsed_time,
                 )
             )
         pred = pred.cpu().numpy()
@@ -168,9 +175,9 @@ def validate(cfg, args):
             agg_uncertainty = calculate_student_agg_var(softmax_var_propagated)
         elif args.propagate_mode == "sample":
             #error propagation: using mutual information as uncertainty 
-            agg_uncertainty = calculate_student_agg_var1d(softmax_var_propagated)
+            #agg_uncertainty = calculate_student_agg_var1d(softmax_var_propagated)
             avg_entropy = avg_entropy.cpu().numpy()
-            #agg_uncertainty =  calculate_student_mutual_information1d(softmax_output, avg_entropy)
+            agg_uncertainty =  calculate_student_mutual_information1d(softmax_output, avg_entropy)
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
 

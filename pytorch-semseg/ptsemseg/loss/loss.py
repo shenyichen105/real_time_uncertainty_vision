@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import math
-
+import numpy as np
 
 def cross_entropy2d(input, target, weight=None, size_average=True, ignore_index=250):
     n, c, h, w = input.size()
@@ -113,4 +113,43 @@ def nll_laplace_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index,
         loss = nll.mean()
     else:
         loss = nll.sum()
+    return loss
+
+def logit_normal_loss(pred_mean, pred_logvar, target, ignore_index, num_samples=20, weight=None, size_average=True):
+    # mean, var are (b, c, h, w ) tensor
+    # mask is (b, h, w) tensor
+    # assume diagonal convariance matrix
+
+    n, c, h, w = pred_mean.size()
+    nt, ht, wt = target.size()
+
+    # Handle inconsistent size between input and target
+    if h != ht and w != wt:  # upsample labels
+        pred_mean = F.interpolate(pred_mean, size=(ht, wt), mode="bilinear", align_corners=True)
+        pred_logvar = F.interpolate(pred_logvar, size=(ht, wt), mode="bilinear", align_corners=True)
+
+    pred_sd = torch.exp(pred_logvar * 0.5)
+    pred_mean = pred_mean.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
+    pred_sd = pred_sd.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
+    target = target.view(-1)
+
+    #sample
+    rand_tensor =  torch.randn(pred_mean.size(0), 
+                                num_samples, pred_mean.size(1), device=pred_mean.device)
+    sampled_logits = rand_tensor * pred_sd.unsqueeze(1) + pred_mean.unsqueeze(1)  
+
+    if size_average:
+        mean_softmax = torch.mean(F.softmax(sampled_logits, dim=2), dim=1)
+        pred = torch.log(mean_softmax + 1e-9)
+        loss = F.nll_loss(pred, target, weight=weight, size_average=size_average, ignore_index=ignore_index)
+    else:
+        raise NotImplementedError("non-size average is not supported for this loss")
+
+    # for i in range(num_samples):
+    #     gaussian_samples = m.sample().to(pred_mean.device)
+    #     pred += F.softmax(pred_mean + pred_sd*gaussian_samples, dim=1)
+
+    # pred = torch.log(pred / num_samples + 1e-8)
+    # loss = F.nll_loss(pred, target, weight=weight, size_average=size_average, ignore_index=ignore_index)
+
     return loss

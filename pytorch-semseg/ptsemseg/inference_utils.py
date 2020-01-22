@@ -13,33 +13,51 @@ def disable_dropout(m):
     if type(m) == torch.nn.Dropout:
         m.eval()
 
-def sample_from_teacher(teacher_model, input, n_sample=5):
+def sample_from_predicted_gaussian(mean, logvar):
+    sd = torch.exp(0.5*logvar)
+    randn_samples = mean.new(mean.size()).normal_()
+    pred = mean + sd*randn_samples
+    return pred
+
+def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False):
     assert n_sample > 0
     #monte carlo sampling teacher's preedictions
     #return an output of [n_sample*batch_size, w, h] and expanded input
-    teacher_model.apply(enable_dropout)
-    all_samples = []
-    for i in range(n_sample):
-        all_samples.append(teacher_model(input).detach())
-    all_samples = torch.cat(all_samples, 0).to(input.device)
-    teacher_model.apply(disable_dropout)
-    return all_samples
+    with torch.no_grad():
+        teacher_model.apply(enable_dropout)
+        all_samples = []
+        for i in range(n_sample):
+            if data_uncertainty:
+                teacher_mean, teacher_logvar = teacher_model(input)
+                all_samples.append(sample_from_predicted_gaussian(teacher_mean, teacher_logvar))
+            else:
+                all_samples.append(teacher_model(input))
+        all_samples = torch.cat(all_samples, 0)
+        teacher_model.apply(disable_dropout)
+        return all_samples
+    
 
-def sample_from_teacher_ensemble(teacher_ensemble, input):
+def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False):
     #ensemble teacher's predictions
     #return an output of [n_sample*batch_size, w, h] and expanded input
-    assert isinstance(teacher_ensemble, list) == True, "input 'model' needs to be a list for ensemble mode"
-    n_models = len(teacher_ensemble)
-    all_samples = []
-    for i in range(n_models):
-        teacher_model = teacher_ensemble[i]
-        all_samples.append(teacher_model(input).detach())
-    all_samples = torch.cat(all_samples, 0).to(input.device)
-    return all_samples
+    assert isinstance(teacher_ensemble, list) == True, \
+    "input 'model' needs to be a list for ensemble mode"
+    with torch.no_grad():
+        n_models = len(teacher_ensemble)
+        all_samples = []
+        for i in range(n_models):
+            teacher_model = teacher_ensemble[i]
+            if data_uncertainty:
+                teacher_mean, teacher_logvar = teacher_model(input)
+                all_samples.append(sample_from_predicted_gaussian(teacher_mean, teacher_logvar))
+            else:
+                all_samples.append(teacher_model(input))
+        all_samples = torch.cat(all_samples, 0)
+        return all_samples
 
-def mc_inference(model, input, n_samples=100):
+def mc_inference(model, input, n_samples=100, data_uncertainty=False):
     #model: a teacher model with dropout layers
-    output = sample_from_teacher(model, input, n_samples)
+    output = sample_from_teacher(model, input, n_samples, data_uncertainty)
     softmax_func = nn.Softmax(dim=1)
     sm_output = softmax_func(output)
     pred_mean = torch.mean(sm_output,dim=0)

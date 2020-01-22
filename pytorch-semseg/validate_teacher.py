@@ -21,18 +21,18 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 #torch.backends.cudnn.benchmark = True
 
-def inference_teacher_model(model, images,  mode="mc", n_samples=25):
+def inference_teacher_model(model, images,  mode="mc", data_uncertainty=False, n_samples=25):
     """
     inference on one image (batch_size =1)
     n_samples: number of samples for mc dropout (mc mode only)
     """
     #monte carlo or ensemble inference on teacher 
     if mode == "mc":
-        pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images, n_samples=n_samples)
+        pred_mean, pred_var_sm, all_sm_output = mc_inference(model, images, n_samples=n_samples, data_uncertainty=data_uncertainty)
     elif mode == "ensemble":
         # input needs to be 
         assert isinstance(model, list) == True, "input 'model' needs to be a list for ensemble mode"
-        pred_mean, pred_var_sm, all_sm_output = ensemble_inference(model, images)
+        pred_mean, pred_var_sm, all_sm_output = ensemble_inference(model, images, data_uncertainty=data_uncertainty)
     else:
         raise NotImplementedError("unrecognized mode: "+ str(mode))
 
@@ -88,10 +88,6 @@ def validate(cfg, args):
     uncertainty_metrics = ["var_std",  "mutual_information"]
     running_uncertainty_metrics = {}
     for mt in uncertainty_metrics:
-    #     if mt == "lc":
-    #         scale = False
-    #     else:
-    #         scale = True
         running_uncertainty_metrics[mt] = runningUncertaintyScore(n_classes, ignore_index=ignore_index[0], name=mt)
     # Setup Model
     def load_model_from_cfg(cfg, model_path, n_classes, device):
@@ -101,7 +97,9 @@ def validate(cfg, args):
         model.eval()
         model.to(device)
         return model
-
+    
+    data_uncertainty = ("output_var" in cfg["model"]) and (cfg["model"]["output_var"])
+    
     if args.mode == "mc":
         model = load_model_from_cfg(cfg, args.model_path, n_classes, device)     
     elif args.mode == "ensemble":
@@ -117,39 +115,31 @@ def validate(cfg, args):
         start_time = timeit.default_timer()
         images = images.to(device)
 
-        # if args.eval_flip:
-        #     pred_mean, pred_logvar = model(images)
-        #     outputs = pred_mean
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
 
-        #     # Flip images in numpy (not support in tensor)
-        #     outputs = outputs.data.cpu().numpy()
-        #     flipped_images = np.copy(images.data.cpu().numpy()[:, :, :, ::-1])
-        #     flipped_images = torch.from_numpy(flipped_images).float().to(device)
-            
-        #     pred_mean_flipped, pred_logvar_flipped  = model(flipped_images)
-        #     outputs_flipped = pred_mean_flipped
-            
-        #     outputs_flipped = outputs_flipped.data.cpu().numpy()
-        #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
-
-        #     pred = np.argmax(outputs, axis=1)
-        with torch.autograd.profiler.profile(use_cuda=True) as prof:
-            pred_mean, pred_var_sm, all_sm_output  = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples)
-            
-            with torch.no_grad():
-                all_sm_output = all_sm_output.permute(0,2,3,1)
-                avg_entropy = -torch.mean(torch.sum(all_sm_output *torch.log(all_sm_output+1e-9), dim=-1)/all_sm_output.size()[3], dim = 0)
-                del all_sm_output
+        #with torch.autograd.profiler.profile(use_cuda=True) as prof:
+        start.record()
+        pred_mean, pred_var_sm, all_sm_output\
+            = inference_teacher_model(model, images, mode=args.mode, n_samples=args.n_samples, data_uncertainty=data_uncertainty)
         
-        cuda_time = sum([item.cuda_time for item in prof.function_events])/1000.0
-        gpu_time = sum([item.cpu_time for item in prof.function_events])/1000.0
+        with torch.no_grad():
+            all_sm_output = all_sm_output.permute(0,2,3,1)
+            avg_entropy = -torch.mean(torch.sum(all_sm_output *torch.log(all_sm_output+1e-9), dim=-1)/all_sm_output.size()[3], dim = 0)
+            del all_sm_output
+        end.record()
+
+        torch.cuda.synchronize()
+        
+        #cuda_time = sum([evt.cuda_time_total for evt in prof.key_averages()]) / 1000
+        #cpu_time = prof.self_cpu_time_total / 1000
 
         if args.measure_time:
-            elapsed_time = timeit.default_timer() - start_time
+            elapsed_time = start.elapsed_time(end)
             print(
                 "Inference time \
-                  (iter {0:5d}):\t\t\t\tCUDA time total {1:.2f}ms;\t\t\t\tCPU time total {2:.2f}ms".format(
-                    i + 1, cuda_time, gpu_time
+                  (iter {0:5d}):\t\t\t\ttime total {1:.2f}ms".format(
+                    i + 1, elapsed_time
                 )
             )
         

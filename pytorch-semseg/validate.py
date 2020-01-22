@@ -49,7 +49,6 @@ def validate(cfg, args):
     # Setup Model
 
     model = get_model(cfg["model"], n_classes).to(device)
-    print(model)
     state = convert_state_dict(torch.load(args.model_path)["model_state"])
     model.load_state_dict(state)
     model.eval()
@@ -60,21 +59,24 @@ def validate(cfg, args):
 
         images = images.to(device)
 
-        if args.eval_flip:
-            outputs = model(images)
+        # if args.eval_flip:
+        #     outputs = model(images)
 
-            # Flip images in numpy (not support in tensor)
-            outputs = outputs.data.cpu().numpy()
-            flipped_images = np.copy(images.data.cpu().numpy()[:, :, :, ::-1])
-            flipped_images = torch.from_numpy(flipped_images).float().to(device)
-            outputs_flipped = model(flipped_images)
-            outputs_flipped = outputs_flipped.data.cpu().numpy()
-            outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
+        #     # Flip images in numpy (not support in tensor)
+        #     outputs = outputs.data.cpu().numpy()
+        #     flipped_images = np.copy(images.data.cpu().numpy()[:, :, :, ::-1])
+        #     flipped_images = torch.from_numpy(flipped_images).float().to(device)
+        #     outputs_flipped = model(flipped_images)
+        #     outputs_flipped = outputs_flipped.data.cpu().numpy()
+        #     outputs = (outputs + outputs_flipped[:, :, :, ::-1]) / 2.0
 
-            pred = np.argmax(outputs, axis=1)
+        #     pred = np.argmax(outputs, axis=1)
+        # else:
+        if ("output_var" in cfg["model"]) and (cfg["model"]["output_var"]):
+            outputs, _ = model(images)
         else:
             outputs = model(images)
-            pred = outputs.data.max(1)[1].cpu().numpy()
+        pred = outputs.data.max(1)[1].cpu().numpy()
 
         gt = labels.numpy()
 

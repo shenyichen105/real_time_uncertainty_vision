@@ -19,6 +19,7 @@ from ptsemseg.augmentations import get_composed_augmentations
 from ptsemseg.schedulers import get_scheduler
 from ptsemseg.optimizers import get_optimizer
 from ptsemseg.utils import convert_state_dict
+from ptsemseg.inference_utils import enable_dropout, disable_dropout, sample_from_teacher, sample_from_teacher_ensemble
 
 from validate_student import validate
 from tensorboardX import SummaryWriter
@@ -29,13 +30,13 @@ import pickle
 pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 
-def enable_dropout(m):
-    if type(m) == torch.nn.Dropout:
-        m.train()
+# def enable_dropout(m):
+#     if type(m) == torch.nn.Dropout:
+#         m.train()
 
-def disable_dropout(m):
-    if type(m) == torch.nn.Dropout:
-        m.eval()
+# def disable_dropout(m):
+#     if type(m) == torch.nn.Dropout:
+#         m.eval()
 
 def load_teacher_model(teacher_cfg, teacher_model_path, n_classes, device):
     model = get_model(teacher_cfg["model"], n_classes).to(device)
@@ -54,29 +55,29 @@ def load_teacher_ensemble(teacher_cfg, cfg, n_classes, device):
         ensemble.append(load_teacher_model(teacher_cfg, path, n_classes, device))
     return ensemble
 
-def sample_from_teacher(teacher_model, input, n_sample=5):
-    assert n_sample > 0
-    #monte carlo sampling teacher's preedictions
-    #return an output of [n_sample*batch_size, w, h] and expanded input
-    teacher_model.apply(enable_dropout)
-    all_samples = []
-    for i in range(n_sample):
-        all_samples.append(teacher_model(input).detach())
-    #all_samples = torch.cat(all_samples, 0).to(input.device)
-    teacher_model.apply(disable_dropout)
-    return all_samples
+# def sample_from_teacher(teacher_model, input, n_sample=5):
+#     assert n_sample > 0
+#     #monte carlo sampling teacher's preedictions
+#     #return an output of [n_sample*batch_size, w, h] and expanded input
+#     teacher_model.apply(enable_dropout)
+#     all_samples = []
+#     for i in range(n_sample):
+#         all_samples.append(teacher_model(input).detach())
+#     #all_samples = torch.cat(all_samples, 0).to(input.device)
+#     teacher_model.apply(disable_dropout)
+#     return all_samples
 
-def sample_from_teacher_ensemble(teacher_ensemble, input, n_sample=5):
-    #return an output of [n_sample*batch_size, w, h] and expanded input
-    assert isinstance(teacher_ensemble, list) == True, \
-        "input 'model' needs to be a list for ensemble mode"
-    assert n_sample <= len(teacher_ensemble)
-    all_samples = []
-    for i in range(n_sample):
-        teacher_model = teacher_ensemble[i]
-        all_samples.append(teacher_model(input).detach())
-    #all_samples = torch.cat(all_samples, 0).to(input.device)
-    return all_samples
+# def sample_from_teacher_ensemble(teacher_ensemble, input, n_sample=5):
+#     #return an output of [n_sample*batch_size, w, h] and expanded input
+#     assert isinstance(teacher_ensemble, list) == True, \
+#         "input 'model' needs to be a list for ensemble mode"
+#     assert n_sample <= len(teacher_ensemble)
+#     all_samples = []
+#     for i in range(n_sample):
+#         teacher_model = teacher_ensemble[i]
+#         all_samples.append(teacher_model(input).detach())
+#     #all_samples = torch.cat(all_samples, 0).to(input.device)
+#     return all_samples
 
 # def expand_output(output, n_sample=5):
 #     assert n_sample > 0
@@ -225,6 +226,10 @@ def train(teacher_cfg, student_cfg, writer, logger):
     flag = True
     best_iter = 0
 
+    data_uncertainty = student_cfg["training"]["teacher_data_uncertainty"]
+    if data_uncertainty:
+        print('Using teacher data uncertainty for training.')
+
     n_sample = student_cfg["training"]["n_sample"]
     gt_ratio = student_cfg["training"]["gt_ratio"]
     
@@ -239,10 +244,10 @@ def train(teacher_cfg, student_cfg, writer, logger):
 
             with torch.no_grad():
                 if args.mode == "mc":
-                    soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample)
+                    soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample, data_uncertainty=data_uncertainty)
                 elif args.mode == "ensemble":
                     #here teacher model is a list of loaded models
-                    soft_labels = sample_from_teacher_ensemble(teacher_model, images, n_sample=n_sample)
+                    soft_labels = sample_from_teacher_ensemble(teacher_model, images, n_sample=n_sample, data_uncertainty=data_uncertainty)
             
             optimizer.zero_grad()
             pred_mean, pred_logvar = student_model(images) 
@@ -369,8 +374,8 @@ if __name__ == "__main__":
         raise NotImplementedError("unrecognized mode")
 
     pf, run_id = os.path.split(teacher_run_folder)
-    _, dataset = os.path.split(pf)
-    teacher_config_path = os.path.join(teacher_run_folder, dataset + ".yml")
+    _, cfg_name = os.path.split(pf)
+    teacher_config_path = os.path.join(teacher_run_folder, cfg_name + ".yml")
     with open(teacher_config_path) as fp:
         teacher_cfg = yaml.load(fp)
 
