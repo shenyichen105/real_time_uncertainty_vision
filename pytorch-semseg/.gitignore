@@ -112,3 +112,4 @@ configs/*
 runs/*
 ../.vscode/*
 *.sh
+*.out
