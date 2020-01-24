@@ -21,7 +21,7 @@ from ptsemseg.optimizers import get_optimizer
 
 from types import SimpleNamespace
 from validate_teacher import validate
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import pickle
 from functools import partial
@@ -146,7 +146,7 @@ def train(cfg, writer, logger, seed=1337):
 
             optimizer.zero_grad()
            
-            if cfg["model"]["output_var"]:
+            if ("output_var" in cfg["model"]) and (cfg["model"]["output_var"]):
                 pred_mean, pred_logvar = model(images)
                 loss = loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, target=labels, ignore_index=ignore_index[0])
             else:

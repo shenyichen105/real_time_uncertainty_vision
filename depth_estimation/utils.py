@@ -21,8 +21,8 @@ def parse_command():
 
     import argparse
     parser = argparse.ArgumentParser(description='Sparse-to-Dense')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18', choices=model_names,
-                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet18)')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet50', choices=model_names,
+                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet50)')
     parser.add_argument('--data', metavar='DATA', default='nyudepthv2',
                         choices=data_names,
                         help='data: ' + ' | '.join(data_names) + ' (default: nyudepthv2)')
@@ -47,7 +47,7 @@ def parse_command():
     parser.add_argument('-b', '--batch-size', default=8, type=int, help='mini-batch size (default: 8)')
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate (default 0.01)')
-    parser.add_argument('--dropout_p', default=0.1, type=float,
+    parser.add_argument('--dropout_p', default=0.2, type=float,
                         metavar='DR', help='dropout rate (default 0.1)')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
@@ -82,15 +82,20 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
 
-def adjust_learning_rate(optimizer, epoch, lr_init):
+def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9):
     """Sets the learning rate to the initial LR decayed by 10 every 5 epochs"""
-    stages = [7, 18]
-    if epoch <= stages[0]:
-        lr = lr_init * 0.2
-    elif epoch > stages[0] and epoch <= stages[1]:
-        lr = lr_init * 0.04
-    else:
-        lr = lr_init * 0.008
+    # stages = [7, 18]
+    # if epoch <= stages[0]:
+    #     lr = lr_init * 0.2
+    # elif epoch > stages[0] and epoch <= stages[1]:
+    #     lr = lr_init * 0.04
+    # else:
+    #     lr = lr_init * 0.008
+
+    #use polynomial learning rate decay
+    lr = (1 - epoch/float(max_epoch)) ** gamma
+    print(lr)
+
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 

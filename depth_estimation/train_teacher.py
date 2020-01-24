@@ -140,8 +140,17 @@ def main():
 
     # create results folder, if not already exists
     output_directory = utils.get_output_directory_teacher(args)
+
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
+    else:
+        n = 1
+        candidate_name = output_directory+"_"+str(n)
+        while os.path.exists(candidate_name):
+            n +=1
+            candidate_name = output_directory+"_"+str(n)
+        os.makedirs(candidate_name)
+
     train_csv = os.path.join(output_directory, 'train.csv')
     test_csv = os.path.join(output_directory, 'test.csv')
     best_txt = os.path.join(output_directory, 'best.txt')
@@ -156,7 +165,7 @@ def main():
             writer.writeheader()
 
     for epoch in range(start_epoch, args.epochs):
-        utils.adjust_learning_rate(optimizer, epoch, args.lr)
+        utils.adjust_learning_rate(optimizer, epoch,  args.lr, args.epochs)
         train(train_loader, model, criterion, optimizer, epoch) # train for one epoch
         if args.data == 'kitti':
             eval_epoch = 4
