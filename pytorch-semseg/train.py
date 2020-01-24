@@ -29,13 +29,13 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 
 
-def train(cfg, writer, logger):
+def train(cfg, writer, logger, seed=1337):
 
     # Setup seeds
-    torch.manual_seed(cfg.get("seed", 1337))
-    torch.cuda.manual_seed(cfg.get("seed", 1337))
-    np.random.seed(cfg.get("seed", 1337))
-    random.seed(cfg.get("seed", 1337))
+    torch.manual_seed(cfg.get("seed", seed))
+    torch.cuda.manual_seed(cfg.get("seed", seed))
+    np.random.seed(cfg.get("seed", seed))
+    random.seed(cfg.get("seed", seed))
 
     # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -285,7 +285,7 @@ if __name__ == "__main__":
             print("RUNDIR: {}".format(logdir))
             logger = get_logger(logdir)
             logger.info("Let the games begin")
-            saved_model_path = train(cfg, writer, logger)
+            saved_model_path = train(cfg, writer, logger, seed=(run_id+i))
     else:
         with open(args.config) as fp:
             cfg = yaml.load(fp)
@@ -298,7 +298,7 @@ if __name__ == "__main__":
         logger = get_logger(rundir)
         logger.info("Let the games begin")
 
-        saved_model_path = train(cfg, writer, logger)
+        saved_model_path = train(cfg, writer, logger, seed=run_id)
     mode = "ensemble" if args.ensemble else "mc"
     val_args = SimpleNamespace(mode=mode, config=args.config, model_path=saved_model_path, save_results_path=None,
                                 ensemble_folder=rundir, measure_time=True, save_results=True, n_samples=50)

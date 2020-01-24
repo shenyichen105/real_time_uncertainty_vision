@@ -8,7 +8,7 @@ data:
     val_split: val
     img_rows: 224
     img_cols: 224
-    path: /home/dev/dataset/VOCdevkit/VOC2012/
+    path: /home/eddie/dataset/VOCdevkit/VOC2012/
     ignore_index: [0]
 
 augmentations:
@@ -24,7 +24,7 @@ training:
     print_interval: 50
     optimizer:
         name: 'sgd'
-        lr: 7.0e-3
+        lr: 1.0e-2
         weight_decay: 0.0005
         #momentum: 0.9
         #betas: [0.9, 0.999]

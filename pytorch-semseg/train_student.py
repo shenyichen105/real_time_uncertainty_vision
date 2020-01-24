@@ -30,14 +30,6 @@ import pickle
 pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 
-# def enable_dropout(m):
-#     if type(m) == torch.nn.Dropout:
-#         m.train()
-
-# def disable_dropout(m):
-#     if type(m) == torch.nn.Dropout:
-#         m.eval()
-
 def load_teacher_model(teacher_cfg, teacher_model_path, n_classes, device):
     model = get_model(teacher_cfg["model"], n_classes).to(device)
     state = convert_state_dict(torch.load(teacher_model_path)["model_state"])
@@ -54,30 +46,6 @@ def load_teacher_ensemble(teacher_cfg, cfg, n_classes, device):
     for path in paths:
         ensemble.append(load_teacher_model(teacher_cfg, path, n_classes, device))
     return ensemble
-
-# def sample_from_teacher(teacher_model, input, n_sample=5):
-#     assert n_sample > 0
-#     #monte carlo sampling teacher's preedictions
-#     #return an output of [n_sample*batch_size, w, h] and expanded input
-#     teacher_model.apply(enable_dropout)
-#     all_samples = []
-#     for i in range(n_sample):
-#         all_samples.append(teacher_model(input).detach())
-#     #all_samples = torch.cat(all_samples, 0).to(input.device)
-#     teacher_model.apply(disable_dropout)
-#     return all_samples
-
-# def sample_from_teacher_ensemble(teacher_ensemble, input, n_sample=5):
-#     #return an output of [n_sample*batch_size, w, h] and expanded input
-#     assert isinstance(teacher_ensemble, list) == True, \
-#         "input 'model' needs to be a list for ensemble mode"
-#     assert n_sample <= len(teacher_ensemble)
-#     all_samples = []
-#     for i in range(n_sample):
-#         teacher_model = teacher_ensemble[i]
-#         all_samples.append(teacher_model(input).detach())
-#     #all_samples = torch.cat(all_samples, 0).to(input.device)
-#     return all_samples
 
 # def expand_output(output, n_sample=5):
 #     assert n_sample > 0
@@ -107,13 +75,13 @@ def calculate_mc_statistics(teacher_model, input, n_sample=5):
     teacher_model.apply(disable_dropout)
     return mean, var
 
-def train(teacher_cfg, student_cfg, writer, logger):
+def train(teacher_cfg, student_cfg, writer, logger, seed):
 
     # Setup seeds
-    torch.manual_seed(student_cfg.get("seed", 1337))
-    torch.cuda.manual_seed(student_cfg.get("seed", 1337))
-    np.random.seed(student_cfg.get("seed", 1337))
-    random.seed(student_cfg.get("seed", 1337))
+    torch.manual_seed(student_cfg.get("seed", seed))
+    torch.cuda.manual_seed(student_cfg.get("seed", seed))
+    np.random.seed(student_cfg.get("seed", seed))
+    random.seed(student_cfg.get("seed", seed))
 
     # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -243,24 +211,35 @@ def train(teacher_cfg, student_cfg, writer, logger):
             gt_labels = labels.to(device)
 
             with torch.no_grad():
+                if data_uncertainty:
+                    n_logits_sample = student_cfg["training"]['n_logits_sample']
+                    n_total_sample = n_logits_sample*n_sample
+                else:
+                    n_total_sample = n_sample
                 if args.mode == "mc":
-                    soft_labels = sample_from_teacher(teacher_model, images, n_sample=n_sample, data_uncertainty=data_uncertainty)
+                    soft_labels = sample_from_teacher(teacher_model, images,\
+                                            n_sample=n_sample, \
+                                            data_uncertainty=data_uncertainty, n_logits_sample= n_logits_sample)
                 elif args.mode == "ensemble":
                     #here teacher model is a list of loaded models
                     soft_labels = sample_from_teacher_ensemble(teacher_model, images, n_sample=n_sample, data_uncertainty=data_uncertainty)
             
             optimizer.zero_grad()
             pred_mean, pred_logvar = student_model(images) 
-            
-            # pred_mean = expand_output(pred_mean, n_sample=n_sample)
-            # pred_logvar = expand_output(pred_logvar, n_sample=n_sample)
             nll_loss = 0
-            for soft_label in soft_labels:
-                nll_loss += soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_label, gt_target=gt_labels, ignore_index=ignore_index[0])
-            
-            #gt_loss = loss_fn(input=pred_mean[:batch_size], target=gt_labels, ignore_index=ignore_index[0])
+            # for i in range(n_total_sample):
+            #     batch_size = pred_mean.size()[0]
+            #     soft_label = soft_labels[(batch_size*i):(batch_size*(i+1)), :,:,:]
+            #     nll_loss += soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_label, gt_target=gt_labels, ignore_index=ignore_index[0])
+            n,c,h,w = pred_mean.size()
+            soft_labels =soft_labels.view(n_total_sample, n, c,h,w)
+            #pred_mean (n,c ,h,w)
+            #pred_logvar (n,c h,w)
+            #soft label (k*m, n, c, h,w) k is the number of mc samples m is the number of logits samples if datauncertainty is enabled
+            nll_loss = soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_labels, gt_target=gt_labels, ignore_index=ignore_index[0])
             gt_loss = loss_fn(input=pred_mean, target=gt_labels, ignore_index=ignore_index[0])
-            nll_loss /= float(n_sample)
+
+            #nll_loss /= float(n_total_sample)
             loss = nll_loss + gt_ratio * gt_loss
             loss.backward()
             optimizer.step()
@@ -276,7 +255,7 @@ def train(teacher_cfg, student_cfg, writer, logger):
                     gt_loss.item(),
                     nll_loss.item(),
                     loss.item(),
-                    time_meter.avg / student_cfg["training"]["batch_size"],
+                    time_meter.avg / (student_cfg["training"]["batch_size"]),
                 )
 
                 print(print_str)
@@ -394,10 +373,10 @@ if __name__ == "__main__":
     logger = get_logger(logdir)
     logger.info("Let the games begin")
 
-    saved_model_path = train(teacher_cfg, student_cfg, writer, logger)
+    saved_model_path = train(teacher_cfg, student_cfg, writer, logger, seed=run_id)
     val_args = SimpleNamespace(config=args.student_cfg,
                                model_path=saved_model_path, 
-                               propagate_mode="sample",
+                               propagate_mode="gpu",
                                measure_time=True,
                                save_results=True,
                                save_results_path=None)

@@ -81,9 +81,8 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
         weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
         nll = nll * weight_tensor
 
-    mask = (gt_target != ignore_index)
-    mask = torch.repeat_interleave(mask.unsqueeze(1), pred_mean.size()[1], dim=1)
-    nll = nll.flatten()[mask.flatten()]
+    mask = (gt_target != ignore_index).unsqueeze(1).float()#mask shape: (n,1,h,w)
+    nll = (nll*mask).flatten()
     if size_average:
         loss = nll.mean()
     else:
