@@ -299,7 +299,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
                 val_loss_meter.reset()
                 running_metrics_val.reset()
 
-                if score["Mean IoU : \t"] >= best_iou:
+                if (score["Mean IoU : \t"] >= best_iou) and ((i + 1) > (student_cfg["training"]["train_iters"]/3.0)):
                     best_iou = score["Mean IoU : \t"]
                     best_iter = i+1
                     state = {
@@ -317,6 +317,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
 
             if (i + 1) == student_cfg["training"]["train_iters"]:
                 flag = False
+                logger.info("best iteration: {}".format(best_iter))
                 print("best iteration: {}".format(best_iter))
                 break
     del teacher_model
