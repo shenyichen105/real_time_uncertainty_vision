@@ -2,7 +2,7 @@ import os
 from train_student import train
 import yaml
 import argparse
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from types import SimpleNamespace
 from validate_student import validate
 from functools import partial
@@ -16,7 +16,7 @@ import itertools
 
 #search space
 gt_ratio = [0.0, 1.0]
-n_sample = [5]
+n_sample = [2,5,8]
 
 
 parser = argparse.ArgumentParser(description="config")

@@ -22,7 +22,7 @@ from ptsemseg.utils import convert_state_dict
 from ptsemseg.inference_utils import enable_dropout, disable_dropout, sample_from_teacher, sample_from_teacher_ensemble
 
 from validate_student import validate
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from types import SimpleNamespace
 
 from functools import partial
