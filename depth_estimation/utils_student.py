@@ -10,7 +10,7 @@ cmap2 = plt.cm.magma
 
 def parse_command():
     model_names = ['resnet18', 'resnet50']
-    loss_names = ['l1', 'l2']
+    loss_names = ['gaussian', 'laplace']
     data_names = ['nyudepthv2', 'kitti']
     from dataloaders.dense_to_sparse import UniformSampling, SimulatedStereo
     sparsifier_names = [x.name for x in [UniformSampling, SimulatedStereo]]
@@ -21,8 +21,8 @@ def parse_command():
 
     import argparse
     parser = argparse.ArgumentParser(description='Sparse-to-Dense')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18', choices=model_names,
-                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet18)')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet50', choices=model_names,
+                        help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet50)')
     parser.add_argument('--datapath', metavar='DATA', default='~/dataset',
                         help='dataset folder path (default: ~/dataset)')
     parser.add_argument('--decoder', '-d', metavar='DECODER', default='upproj', choices=decoder_names,
@@ -40,10 +40,10 @@ def parse_command():
                         metavar='W', help='weight decay (default: 1e-4)')
     parser.add_argument('--print-freq', '-p', default=20, type=int,
                         metavar='N', help='print frequency (default: 50)')
-    parser.add_argument('--teacher', '-t', metavar='T', default='./results/kitti.sparsifier=uar.samples=0.modality=rgb.arch=resnet18.decoder=upproj.criterion=l1.lr=0.01.bs=8.pretrained=True.dropout_p=0.1', help='the path to the teacher models folder')
+    parser.add_argument('--teacher', '-t', metavar='T', default='results/nyudepthv2.sparsifier=uar.samples=0.modality=rgb.arch=resnet50.decoder=upproj.criterion=l1.lr=0.01.bs=8.pretrained=True.dropout_p=0.1', help='the path to the teacher models folder')
     parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
                         help='not to use ImageNet pre-trained weights')
-    parser.add_argument('--use_teacher_weights', action='store_true',
+    parser.add_argument('--not_use_teacher_weights', dest='use_teacher_weights',action='store_false',
                         help='use teacher weights to start')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
@@ -53,7 +53,12 @@ def parse_command():
                         help='number of teachers predictions to sample per input')
     parser.add_argument('--gr', '--ratio_gt',default=0.05, type=float,
                         help='ratio of ground truth nll loss in the total student loss')
+    parser.add_argument('--test', dest='test', action='store_true',
+                        help='test or debugg mode')
+    parser.add_argument('-c', '--criterion', metavar='LOSS', default='laplace', choices=loss_names,
+                        help='loss function: ' + ' | '.join(loss_names) + ' (default: laplace)')
     parser.set_defaults(pretrained=True)
+    parser.set_defaults(use_teacher_weights=True)
     args = parser.parse_known_args()[0]
     return args
 
@@ -68,21 +73,25 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
 
-def adjust_learning_rate(optimizer, epoch, lr_init, warm_up=5):
+def adjust_learning_rate(optimizer, epoch, lr_init, warm_up=3):
     """Sets the learning rate to the initial LR decayed by 10 every 6 epochs"""
-    stages = [12, 25]
-    if epoch == 1:
-        lr = 0.00005
-    elif epoch < warm_up:
+    # stages = [12, 25]
+    # if epoch == 1:
+    #     lr = 0.00005
+    if epoch < warm_up:
         lr = lr_init  * float(epoch)/warm_up
-    elif epoch <= stages[0] and epoch >=warm_up:
-        lr = lr_init 
-    elif epoch > stages[0] and epoch <= stages[1]:
-        lr = lr_init * 0.1
     else:
-        lr = lr_init * 0.01
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+        lr = ((1 - (epoch-warm_up)/float(max_epoch-warm_up) ) ** gamma) * lr_init
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+    # elif epoch <= stages[0] and epoch >=warm_up:
+    #     lr = lr_init 
+    # elif epoch > stages[0] and epoch <= stages[1]:
+    #     lr = lr_init * 0.1
+    # else:
+    #     lr = lr_init * 0.01
+    # for param_group in optimizer.param_groups:
+    #     param_group['lr'] = lr
 
 def get_output_directory(args):
     output_directory = os.path.join('results',
@@ -94,8 +103,11 @@ def get_output_directory(args):
 
 def get_student_output_directory(args):
     teacher_folder = args.teacher
-    output_directory = os.path.join(teacher_folder, 'student.gt_ratio={}.n_sample={}.epochs={}.arch={}.use_teacher_weights={}'.
-            format(args.gr, args.n_sample, args.epochs, args.arch, args.use_teacher_weights))
+    if args.test:
+        output_directory = os.path.join(teacher_folder,'test')
+    else:
+        output_directory = os.path.join(teacher_folder, 'student.gt_ratio={}.n_sample={}.epochs={}.arch={}.use_teacher_weights={}.criterion={}'.
+                format(args.gr, args.n_sample, args.epochs, args.arch, args.use_teacher_weights, args.criterion))
     return output_directory
 
 def colored_depthmap(depth, d_min=None, d_max=None, cmap=cmap):

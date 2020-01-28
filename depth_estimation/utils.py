@@ -48,7 +48,7 @@ def parse_command():
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate (default 0.01)')
     parser.add_argument('--dropout_p', default=0.2, type=float,
-                        metavar='DR', help='dropout rate (default 0.1)')
+                        metavar='DR', help='dropout rate (default 0.2)')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
     parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
@@ -59,6 +59,8 @@ def parse_command():
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', type=str, default='',
                         help='evaluate model on validation set')
+    parser.add_argument('-t', '--test', dest='test', action='store_true',
+                        help='test or debugg mode')
     parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
                         help='not to use ImageNet pre-trained weights')
     parser.set_defaults(pretrained=True)
@@ -93,9 +95,7 @@ def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9):
     #     lr = lr_init * 0.008
 
     #use polynomial learning rate decay
-    lr = (1 - epoch/float(max_epoch)) ** gamma
-    print(lr)
-
+    lr = ((1 - epoch/float(max_epoch) ) ** gamma) * lr_init
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
@@ -108,7 +108,10 @@ def get_output_directory(args):
     return output_directory
 
 def get_output_directory_teacher(args):
-    output_directory = os.path.join('results',
+    if args.test:
+        output_directory = os.path.join('results', 'test')
+    else:
+        output_directory = os.path.join('results',
         '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}.dropout_p={}'.
         format(args.data, args.sparsifier, args.num_samples, args.modality, \
             args.arch, args.decoder, args.criterion, args.lr, args.batch_size, \

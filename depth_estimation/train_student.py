@@ -19,7 +19,7 @@ print(args)
 
 fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
                 'delta1', 'delta2', 'delta3',
-                'data_time', 'gpu_time', 'kl', 'nll_teacher', 'nll_gt']
+                'data_time', 'gpu_time', 'kl', 'teacher_loss', 'gt_loss', 'ause']
 best_result = Result()
 best_result.set_to_worst()
 
@@ -142,12 +142,33 @@ def main():
         model_student = model_student.cuda()
 
     # define loss function (criterion) and optimizer
-    criterion = criteria.GaussianNLLloss().cuda()
+    if args.criterion == "gaussian":
+        criterion = criteria.GaussianNLLloss().cuda()
+    elif args.criterion == "laplace":
+        criterion = criteria.LaplaceNLLloss().cuda()
+    else:
+        raise NotImplementedError("unrecognized loss")
 
+    print("using {} nll loss as teacher loss".format(args.criterion))
+    # define ground truth loss
+    if teacher_args.criterion == 'l2':
+        gt_criterion = criteria.MaskedMSELoss().cuda()
+    elif teacher_args.criterion == 'l1':
+        gt_criterion = criteria.MaskedL1Loss().cuda()
     # create results folder, if not already exists
     output_directory = utils_student.get_student_output_directory(args)
+    
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
+    elif args.test:
+        pass
+    else:
+        n = 1
+        candidate_name = output_directory+"_"+str(n)
+        while os.path.exists(candidate_name):
+            n +=1
+            candidate_name = output_directory+"_"+str(n)
+        os.makedirs(candidate_name)
     train_csv = os.path.join(output_directory, 'train.csv')
     test_csv = os.path.join(output_directory, 'test.csv')
     best_txt = os.path.join(output_directory, 'best.txt')
@@ -163,7 +184,7 @@ def main():
 
     for epoch in range(start_epoch, args.epochs):
         utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr)
-        train_student(train_loader, model_student, model_teacher, criterion, optimizer, epoch, n_samples=args.n_sample, gt_loss_ratio=args.gr) # train for one epoch
+        train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=args.n_sample, gt_loss_ratio=args.gr) # train for one epoch
         if teacher_args.data == 'kitti':
             eval_epoch = 3
         else:
@@ -175,8 +196,8 @@ def main():
             if is_best:
                 best_result = result
                 with open(best_txt, 'w') as txtfile:
-                    txtfile.write("epoch={}\nnll_gt={:.3f}\nrmse={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nkl={:.3f}t_gpu={:.4f}\n".
-                        format(epoch, result.nll_gt, result.rmse, result.mae, result.delta1, result.kl, result.gpu_time))
+                    txtfile.write("epoch={}\ngt_loss={:.3f}\nrmse={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nkl={:.3f}t_gpu={:.4f}\n".
+                        format(epoch, result.gt_loss, result.rmse, result.mae, result.delta1, result.kl, result.gpu_time))
                 if img_merge is not None:
                     img_filename = output_directory + '/comparison_best.png'
                     utils.save_image(img_merge, img_filename)
@@ -189,6 +210,8 @@ def main():
                 'best_result': best_result,
                 'optimizer' : optimizer,
             }, is_best, epoch, output_directory)
+        if args.test:
+            break
 
 def generate_teacher_predictions(model_teacher, input, n_samples):
     #naive implementation, can be slow
@@ -211,7 +234,7 @@ def expand_output(output, n_sample=5):
     all_output = torch.cat(all_output).to(output.device)
     return all_output
 
-def train_student(train_loader, model_student, model_teacher, criterion, optimizer, epoch, n_samples=5, gt_loss_ratio=0.1):
+def train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=5, gt_loss_ratio=0.1):
     average_meter = AverageMeterStudent()
     model_student.train() # switch to train mode
     model_teacher.eval() # switch to eval mode for teacher
@@ -228,15 +251,17 @@ def train_student(train_loader, model_student, model_teacher, criterion, optimiz
         with torch.no_grad():
             pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
         pred_mu, pred_logvar = model_student(input)
-        pred_mu = expand_output(pred_mu, n_sample=n_samples)
-        pred_logvar = expand_output(pred_logvar, n_sample=n_samples)
+        b,c,h,w =  pred_mu.size()
+        #pred_mu = expand_output(pred_mu, n_sample=n_samples)
+        #pred_logvar = expand_output(pred_logvar, n_sample=n_samples)
         
-        pred_mu_gt = pred_mu[:input.size()[0],:,:,:]
-        pred_logvar_gt = pred_logvar[:input.size()[0],:,:,:]
+        #pred_mu_gt = pred_mu[:input.size()[0],:,:,:]
+        #pred_logvar_gt = pred_logvar[:input.size()[0],:,:,:]
         
-        nll_teacher = criterion(pred_mu, pred_logvar, pred_dropout)
-        nll_gt = criterion(pred_mu_gt, pred_logvar_gt, target, mask_zero=True)
-        loss = nll_teacher + gt_loss_ratio * nll_gt
+        nll_teacher = criterion(pred_mu, pred_logvar, pred_dropout.view(n_samples, b,c,h,w), mask_zero=True)
+        gt_loss = gt_criterion(pred_mu, target)
+        
+        loss = nll_teacher + gt_loss_ratio * gt_loss
 
         optimizer.zero_grad()
         loss.backward() # compute gradient and do SGD step
@@ -247,7 +272,7 @@ def train_student(train_loader, model_student, model_teacher, criterion, optimiz
         # measure accuracy and record loss
         result = ResultStudent()
         result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data, 
-                        nll_teacher=nll_teacher.data.mean(), nll_gt=nll_gt.data.mean())
+                        teacher_loss=nll_teacher.data.mean(), gt_loss=gt_loss.data.mean())
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
 
@@ -258,18 +283,20 @@ def train_student(train_loader, model_student, model_teacher, criterion, optimiz
                   't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
                   'RMSE={result.rmse:.2f}({average.rmse:.2f}) '
                   'Delta1={result.delta1:.3f}({average.delta1:.3f}) '
-                  'nll_teacher={result.nll_teacher:.3f}({average.nll_teacher:.3f})'
-                  'nll_gt={result.nll_gt:.3f}({average.nll_gt:.3f})'
-                  'kl={result.kl:.3f}({average.kl:.3f})'.format(
+                  'teacher_loss={result.teacher_loss:.3f}({average.teacher_loss:.3f})'
+                  'gt_loss={result.gt_loss:.3f}({average.gt_loss:.3f})'
+                  'kl={result.kl:.3f}({average.kl:.3f})'
+                  'ause={result.ause:.3f}({average.ause:.3f})'.format(
                   epoch, i+1, len(train_loader), data_time=data_time,
                   gpu_time=gpu_time, result=result, average=average_meter.average()))
-
+        if args.test:
+            break
     avg = average_meter.average()
     with open(train_csv, 'a') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
             'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
-            'gpu_time': avg.gpu_time, 'data_time': avg.data_time, 'nll_teacher':avg.nll_gt, 'nll_gt':avg.nll_teacher, 'kl':avg.kl})
+            'gpu_time': avg.gpu_time, 'data_time': avg.data_time, 'teacher_loss':avg.gt_loss, 'gt_loss':avg.teacher_loss, 'kl':avg.kl})
 
 
 def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, write_to_file=True):
@@ -284,7 +311,7 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
         # compute output
         end = time.time()
         with torch.no_grad():
-            _, pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
+            pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
             pred_mu, pred_logvar = model_student(input)
             pred_std = torch.exp(0.5*pred_logvar)
             
@@ -335,8 +362,11 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
                   'MAE={result.mae:.2f}({average.mae:.2f}) '
                   'Delta1={result.delta1:.3f}({average.delta1:.3f}) '
                   'REL={result.absrel:.3f}({average.absrel:.3f}) '
-                  'Lg10={result.lg10:.3f}({average.lg10:.3f}) '.format(
+                  'Lg10={result.lg10:.3f}({average.lg10:.3f}) '
+                  'ause={result.ause:.3f}({average.ause:.3f})'.format(
                    i+1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
+        if args.test:
+            break
 
     avg = average_meter.average()
 
@@ -347,7 +377,8 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
         'REL={average.absrel:.3f}\n'
         'Lg10={average.lg10:.3f}\n'
         'kl={average.kl:.3f}\n'
-        'nll_gt={average.nll_gt:.3f}\n'
+        'gt_loss={average.gt_loss:.3f}\n'
+        'ause={average.ause:.3f}\n'
         't_GPU={time:.3f}\n'.format(
         average=avg, time=avg.gpu_time))
 
@@ -356,7 +387,9 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
                 'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
-                'data_time': avg.data_time, 'gpu_time': avg.gpu_time, 'nll_teacher':avg.nll_teacher, 'nll_gt':avg.nll_gt, 'kl':avg.kl})
+                'data_time': avg.data_time, 'gpu_time': avg.gpu_time, 
+                'teacher_loss':avg.teacher_loss, 
+                'gt_loss':avg.gt_loss, 'kl':avg.kl, 'ause':avg.ause})
     return avg, img_merge
 
 if __name__ == '__main__':

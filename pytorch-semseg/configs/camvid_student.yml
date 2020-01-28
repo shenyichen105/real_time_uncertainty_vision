@@ -14,10 +14,10 @@ data:
     
 training:
     train_iters: 60000
-    teacher_model_path: runs/camvid_new_dropout/40780/segnet_camvid_best_model.pkl
     teacher_run_folder: runs/camvid_new_dropout/40780
     teacher_data_uncertainty: False
     n_sample: 5
+    n_logits_sample: 5
     gt_ratio: 1.0
     batch_size: 3
     val_interval: 1000

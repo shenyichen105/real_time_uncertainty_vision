@@ -75,7 +75,7 @@ def calculate_mc_statistics(teacher_model, input, n_sample=5):
     teacher_model.apply(disable_dropout)
     return mean, var
 
-def train(teacher_cfg, student_cfg, writer, logger, seed):
+def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
 
     # Setup seeds
     torch.manual_seed(student_cfg.get("seed", seed))
@@ -135,10 +135,12 @@ def train(teacher_cfg, student_cfg, writer, logger, seed):
     running_metrics_val = runningScore(n_classes, ignore_index=ignore_index[0])
     # Setup Model
     student_model = get_model(student_cfg["model"], n_classes).to(device)
-    if args.mode == "mc":
-        teacher_model = load_teacher_model(teacher_cfg, student_cfg['training']['teacher_model_path'], n_classes, device)
-        print("teacher model loaded from: {}".format(student_cfg['training']['teacher_model_path']))
-    elif args.mode == "ensemble":
+    if mode == "mc":
+        model_file_name = "{}_{}_best_model.pkl".format(teacher_cfg["model"]["arch"], teacher_cfg["data"]["dataset"])
+        teacher_model_path = os.path.join(student_cfg['training']['teacher_run_folder'], model_file_name) 
+        teacher_model = load_teacher_model(teacher_cfg, teacher_model_path, n_classes, device)
+        print("teacher model loaded from: {}".format(student_cfg['training']['teacher_run_folder']))
+    elif mode == "ensemble":
         teacher_model = load_teacher_ensemble(teacher_cfg, student_cfg, n_classes, device)
         print("teacher ensemble loaded from: {}".format(student_cfg['training']['teacher_ensemble_folder']))
     else:
@@ -146,9 +148,9 @@ def train(teacher_cfg, student_cfg, writer, logger, seed):
 
     if ("use_teacher_weights" in student_cfg["training"]) and (student_cfg["training"]["use_teacher_weights"]):
         print("student model using teacher weights")
-        if args.mode == "mc":
+        if mode == "mc":
             student_model.load_state_dict(teacher_model.state_dict(), strict=False)
-        elif args.mode == "ensemble":
+        elif mode == "ensemble":
             #load weights from the first ensemeble model
             student_model.load_state_dict(teacher_model[0].state_dict(), strict=False)
 
@@ -216,27 +218,28 @@ def train(teacher_cfg, student_cfg, writer, logger, seed):
                     n_total_sample = n_logits_sample*n_sample
                 else:
                     n_total_sample = n_sample
-                if args.mode == "mc":
+                    n_logits_sample = 1 #no logits will be sampled
+                if mode == "mc":
                     soft_labels = sample_from_teacher(teacher_model, images,\
                                             n_sample=n_sample, \
                                             data_uncertainty=data_uncertainty, n_logits_sample= n_logits_sample)
-                elif args.mode == "ensemble":
+                elif mode == "ensemble":
                     #here teacher model is a list of loaded models
-                    soft_labels = sample_from_teacher_ensemble(teacher_model, images, n_sample=n_sample, data_uncertainty=data_uncertainty)
+                    soft_labels = sample_from_teacher_ensemble(teacher_model, images, n_logits_sample=n_logits_sample, data_uncertainty=data_uncertainty)
             
             optimizer.zero_grad()
-            pred_mean, pred_logvar = student_model(images) 
-            nll_loss = 0
-            # for i in range(n_total_sample):
-            #     batch_size = pred_mean.size()[0]
-            #     soft_label = soft_labels[(batch_size*i):(batch_size*(i+1)), :,:,:]
-            #     nll_loss += soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_label, gt_target=gt_labels, ignore_index=ignore_index[0])
+            pred_mean, pred_logvar = student_model(images)
             n,c,h,w = pred_mean.size()
-            soft_labels =soft_labels.view(n_total_sample, n, c,h,w)
+            soft_labels =soft_labels.view(n_total_sample, n, c,h,w).contiguous()
             #pred_mean (n,c ,h,w)
             #pred_logvar (n,c h,w)
             #soft label (k*m, n, c, h,w) k is the number of mc samples m is the number of logits samples if datauncertainty is enabled
-            nll_loss = soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_labels, gt_target=gt_labels, ignore_index=ignore_index[0])
+
+            nll_loss = 0
+            for sl in soft_labels:
+                nll_loss += soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=sl, gt_target=gt_labels, ignore_index=ignore_index[0])
+            nll_loss /= n_total_sample
+            #nll_loss = soft_loss_fn(pred_mean=pred_mean, pred_logvar=pred_logvar, soft_target=soft_labels, gt_target=gt_labels, ignore_index=ignore_index[0])
             gt_loss = loss_fn(input=pred_mean, target=gt_labels, ignore_index=ignore_index[0])
 
             #nll_loss /= float(n_total_sample)
@@ -316,6 +319,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed):
                 flag = False
                 print("best iteration: {}".format(best_iter))
                 break
+    del teacher_model
     return save_path          
 
 if __name__ == "__main__":
@@ -373,7 +377,7 @@ if __name__ == "__main__":
     logger = get_logger(logdir)
     logger.info("Let the games begin")
 
-    saved_model_path = train(teacher_cfg, student_cfg, writer, logger, seed=run_id)
+    saved_model_path = train(teacher_cfg, student_cfg, writer, logger, seed=run_id, mode=args.mode)
     val_args = SimpleNamespace(config=args.student_cfg,
                                model_path=saved_model_path, 
                                propagate_mode="gpu",

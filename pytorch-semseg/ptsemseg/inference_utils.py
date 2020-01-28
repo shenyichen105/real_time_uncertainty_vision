@@ -67,7 +67,7 @@ def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False
         return all_samples
     
 
-def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False, n_logits_sample=5):
+def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False, n_logits_sample=10):
     #ensemble teacher's predictions
     #return an output of [n_sample*batch_size, w, h] and expanded input
     assert isinstance(teacher_ensemble, list) == True, \

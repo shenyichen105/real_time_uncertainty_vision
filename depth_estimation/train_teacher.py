@@ -143,6 +143,8 @@ def main():
 
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
+    elif args.test:
+        pass
     else:
         n = 1
         candidate_name = output_directory+"_"+str(n)
