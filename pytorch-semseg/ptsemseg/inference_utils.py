@@ -99,9 +99,9 @@ def mc_inference(model, input, n_samples=100, data_uncertainty=False):
     pred_var_sm = torch.var(sm_output,dim=0)
     return pred_mean, pred_var_sm, sm_output
 
-def ensemble_inference(models, input):
+def ensemble_inference(models, input, data_uncertainty=False):
     # models: the ensemble of teacher models with differnent random initialization
-    output = sample_from_teacher_ensemble(models, input)
+    output = sample_from_teacher_ensemble(models, input, data_uncertainty)
     softmax_func = nn.Softmax(dim=1)
     sm_output = softmax_func(output)
     pred_mean = torch.mean(sm_output,dim=0)
