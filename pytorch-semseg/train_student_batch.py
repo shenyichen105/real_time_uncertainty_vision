@@ -14,9 +14,6 @@ import itertools
 
 
 
-#search space
-gt_ratio = [0.0, 1.0]
-n_sample = [2,5,8]
 
 
 parser = argparse.ArgumentParser(description="config")
@@ -43,10 +40,20 @@ parser.add_argument(
     default= "mc",
     help="teacher mode",
 )
+#search space
 
 
 #load the template config
 args = parser.parse_args()
+
+if args.mode == "ensemble":
+    gt_ratio = [0.0, 1.0]
+    n_sample = [5]
+else:
+    gt_ratio = [0.0, 1.0]
+    n_sample = [2,5,8]
+
+
 with open(args.template_cfg) as fp:
     student_cfg = yaml.load(fp)
 
