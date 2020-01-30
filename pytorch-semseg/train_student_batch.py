@@ -77,6 +77,7 @@ for gr, ns in list(itertools.product(gt_ratio, n_sample)):
     cur_cfg['training']['gt_ratio'] = float(gr)
     cur_cfg['training']['n_sample'] = int(ns)
     print('gt_ratio ={} n_samples ={}'.format(gr, ns))
+    random.seed(a=None)
     student_run_id = random.randint(1, 100000)
     logdir = os.path.join(teacher_run_folder, "test_student_"+str(student_run_id))
     writer = SummaryWriter(log_dir=logdir)
