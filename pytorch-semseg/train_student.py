@@ -39,6 +39,8 @@ def load_teacher_model(teacher_cfg, teacher_model_path, n_classes, device):
     return model
 
 def load_teacher_ensemble(teacher_cfg, cfg, n_classes, device):
+    #TODO: need to implement random selection of teacher model 
+
     model_file_name = "{}_{}_best_model.pkl".format(teacher_cfg["model"]["arch"], teacher_cfg["data"]["dataset"])
     paths = [os.path.join(cfg['training']['teacher_ensemble_folder'], str(i), model_file_name)\
              for i in range(int(cfg["training"]["n_sample"]))]
@@ -299,7 +301,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
                 val_loss_meter.reset()
                 running_metrics_val.reset()
 
-                if score["Mean IoU : \t"] >= best_iou:
+                if (score["Mean IoU : \t"] >= best_iou) and ((i + 1) > (student_cfg["training"]["train_iters"]/3.0)):
                     best_iou = score["Mean IoU : \t"]
                     best_iter = i+1
                     state = {
@@ -317,6 +319,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
 
             if (i + 1) == student_cfg["training"]["train_iters"]:
                 flag = False
+                logger.info("best iteration: {}".format(best_iter))
                 print("best iteration: {}".format(best_iter))
                 break
     del teacher_model
@@ -364,7 +367,7 @@ if __name__ == "__main__":
 
     run_id = int(run_id[:5])
     if args.test:
-        student_run_id = 1
+        student_run_id = "test"
     else:
         student_run_id = random.randint(1, 100000)
     #student_run_id = 998
