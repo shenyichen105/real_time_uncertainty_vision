@@ -32,7 +32,7 @@ def parse_command():
     parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('-b', '--batch-size', default=4, type=int, help='mini-batch size (default: 8)')
-    parser.add_argument('--lr', '--learning-rate', default=0.005, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
                         metavar='LR', help='initial learning rate (default 0.005)')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
@@ -40,7 +40,7 @@ def parse_command():
                         metavar='W', help='weight decay (default: 1e-4)')
     parser.add_argument('--print-freq', '-p', default=20, type=int,
                         metavar='N', help='print frequency (default: 50)')
-    parser.add_argument('--teacher', '-t', metavar='T', default='results/nyudepthv2.sparsifier=uar.samples=0.modality=rgb.arch=resnet50.decoder=upproj.criterion=l1.lr=0.01.bs=8.pretrained=True.dropout_p=0.1', help='the path to the teacher models folder')
+    parser.add_argument('--teacher', '-t', metavar='T', default='results/nyudepthv2.sparsifier=uar.samples=0.modality=rgb.arch=resnet50.decoder=upproj.criterion=l1.lr=0.01.bs=8.pretrained=True.dropout_p=0.2', help='the path to the teacher models folder')
     parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
                         help='not to use ImageNet pre-trained weights')
     parser.add_argument('--not_use_teacher_weights', dest='use_teacher_weights',action='store_false',
@@ -49,7 +49,7 @@ def parse_command():
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', type=str, default='',
                         help='evaluate model on validation set')
-    parser.add_argument('-n', '--n_sample', default=7, type=int,
+    parser.add_argument('-n', '--n_sample', default=5, type=int,
                         help='number of teachers predictions to sample per input')
     parser.add_argument('--gr', '--ratio_gt',default=0.05, type=float,
                         help='ratio of ground truth nll loss in the total student loss')
@@ -73,7 +73,7 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
 
-def adjust_learning_rate(optimizer, epoch, lr_init, warm_up=3):
+def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9, warm_up=0):
     """Sets the learning rate to the initial LR decayed by 10 every 6 epochs"""
     # stages = [12, 25]
     # if epoch == 1:
@@ -134,7 +134,6 @@ def merge_into_row(input, depth_target, depth_pred):
 
 def merge_into_row_only_pred(depth_pred):
     depth_pred_cpu = np.squeeze(depth_pred.data.cpu().numpy())
-    print(depth_pred_cpu.shape)
     d_min = min(np.min(depth_pred_cpu), np.min(depth_pred_cpu))
     d_max = max(np.max(depth_pred_cpu), np.max(depth_pred_cpu))
     depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)
@@ -160,6 +159,7 @@ def merge_into_row_with_confidence(input, depth_target, depth_pred_teacher, dept
     depth_target_col = colored_depthmap(depth_target_cpu, d_min, d_max)
     depth_pred_teacher_col = colored_depthmap(depth_pred_teacher_cpu, d_min, d_max)
     depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)
+
     conf_teacher_col = colored_depthmap(conf_teacher_cpu, conf_min, conf_max, cmap=cmap2)
     conf_student_col = colored_depthmap(conf_student_cpu, conf_min, conf_max, cmap=cmap2)
     

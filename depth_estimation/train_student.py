@@ -7,19 +7,20 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.optim
 cudnn.benchmark = True
-from models_dropout import ResNet, ResNetStudent
+from models_dropout import ResNet, ResNetVar
 from metrics import AverageMeter, Result, ResultStudent, AverageMeterStudent
 from dataloaders.dense_to_sparse import UniformSampling, SimulatedStereo
 import criteria
 import utils
 import utils_student
+from inference_util import generate_mcdropout_predictions, sample_from_mcdropout_predictions_w_var, generate_mcdropout_predictions_w_var
 
 args = utils_student.parse_command()
 print(args)
 
 fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
                 'delta1', 'delta2', 'delta3',
-                'data_time', 'gpu_time', 'kl', 'teacher_loss', 'gt_loss', 'ause']
+                'data_time', 'gpu_time', 'kl', 'teacher_loss', 'gt_loss', 'ause', 'ece']
 best_result = Result()
 best_result.set_to_worst()
 
@@ -127,13 +128,12 @@ def main():
         print("=> creating Model ({}-{}) ...".format(args.arch, teacher_args.decoder))
         in_channels = len(teacher_args.modality)
         if args.arch == 'resnet50':
-            model_student = ResNetStudent(layers=50, decoder=teacher_args.decoder, output_size=train_loader.dataset.output_size,
+            model_student = ResNetVar(layers=50, decoder=teacher_args.decoder, output_size=train_loader.dataset.output_size,
                 in_channels=in_channels, pretrained=teacher_args.pretrained)
         elif args.arch == 'resnet18':
-            model_student = ResNetStudent(layers=18, decoder=teacher_args.decoder, output_size=train_loader.dataset.output_size,
+            model_student = ResNetVar(layers=18, decoder=teacher_args.decoder, output_size=train_loader.dataset.output_size,
                 in_channels=in_channels, pretrained=teacher_args.pretrained)
         print("=> model created.")
-        #TODO initialize student model with teacher's weights
         if args.use_teacher_weights:
             model_student.load_state_dict(model_teacher.state_dict(), strict=False)
         optimizer = torch.optim.SGD(model_student.parameters(), args.lr, \
@@ -169,6 +169,7 @@ def main():
             n +=1
             candidate_name = output_directory+"_"+str(n)
         os.makedirs(candidate_name)
+        output_directory = candidate_name
     train_csv = os.path.join(output_directory, 'train.csv')
     test_csv = os.path.join(output_directory, 'test.csv')
     best_txt = os.path.join(output_directory, 'best.txt')
@@ -183,7 +184,7 @@ def main():
             writer.writeheader()
 
     for epoch in range(start_epoch, args.epochs):
-        utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr)
+        utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr, args.epochs)
         train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=args.n_sample, gt_loss_ratio=args.gr) # train for one epoch
         if teacher_args.data == 'kitti':
             eval_epoch = 3
@@ -196,8 +197,8 @@ def main():
             if is_best:
                 best_result = result
                 with open(best_txt, 'w') as txtfile:
-                    txtfile.write("epoch={}\ngt_loss={:.3f}\nrmse={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nkl={:.3f}t_gpu={:.4f}\n".
-                        format(epoch, result.gt_loss, result.rmse, result.mae, result.delta1, result.kl, result.gpu_time))
+                    txtfile.write("epoch={}\ngt_loss={:.3f}\nrmse={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nkl={:.3f}\nt_gpu={:.4f}\nause={:.4f}\nece={:.4f}\n".
+                        format(epoch, result.gt_loss, result.rmse, result.mae, result.delta1, result.kl, result.gpu_time, result.ause, result.ece))
                 if img_merge is not None:
                     img_filename = output_directory + '/comparison_best.png'
                     utils.save_image(img_merge, img_filename)
@@ -212,17 +213,6 @@ def main():
             }, is_best, epoch, output_directory)
         if args.test:
             break
-
-def generate_teacher_predictions(model_teacher, input, n_samples):
-    #naive implementation, can be slow
-    model_teacher.apply(utils_student.enable_dropout) #enable dropout in the inference
-    pred_dropout = []
-    for i in range(n_samples):
-        pred = model_teacher(input)
-        pred_dropout.append(pred)
-    pred_dropout = torch.cat(pred_dropout, 0).detach()
-    model_teacher.apply(utils_student.disable_dropout)
-    return pred_dropout
 
 def expand_output(output, n_sample=5):
     assert n_sample > 0
@@ -249,16 +239,14 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
         # compute pred
         end = time.time()
         with torch.no_grad():
-            pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
+            if hasattr(teacher_args, 'data_uncertainty') and (teacher_args.data_uncertainty):
+                pred_dropout = sample_from_mcdropout_predictions_w_var(model_teacher, input, n_samples, n_data_samples=5, criterion=teacher_args.criterion)
+            else:
+                pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+           
         pred_mu, pred_logvar = model_student(input)
         b,c,h,w =  pred_mu.size()
-        #pred_mu = expand_output(pred_mu, n_sample=n_samples)
-        #pred_logvar = expand_output(pred_logvar, n_sample=n_samples)
-        
-        #pred_mu_gt = pred_mu[:input.size()[0],:,:,:]
-        #pred_logvar_gt = pred_logvar[:input.size()[0],:,:,:]
-        
-        nll_teacher = criterion(pred_mu, pred_logvar, pred_dropout.view(n_samples, b,c,h,w), mask_zero=True)
+        nll_teacher = criterion(pred_mu, pred_logvar, pred_dropout, mask_zero=True)
         gt_loss = gt_criterion(pred_mu, target)
         
         loss = nll_teacher + gt_loss_ratio * gt_loss
@@ -271,7 +259,7 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
 
         # measure accuracy and record loss
         result = ResultStudent()
-        result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data, 
+        result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data, dist=args.criterion,
                         teacher_loss=nll_teacher.data.mean(), gt_loss=gt_loss.data.mean())
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
@@ -286,9 +274,11 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
                   'teacher_loss={result.teacher_loss:.3f}({average.teacher_loss:.3f})'
                   'gt_loss={result.gt_loss:.3f}({average.gt_loss:.3f})'
                   'kl={result.kl:.3f}({average.kl:.3f})'
-                  'ause={result.ause:.3f}({average.ause:.3f})'.format(
+                  'ause={result.ause:.3f}({average.ause:.3f})'
+                  'ece={result.ece:.3f}({average.ece:.3f})'.format(
                   epoch, i+1, len(train_loader), data_time=data_time,
-                  gpu_time=gpu_time, result=result, average=average_meter.average()))
+                  gpu_time=gpu_time, result=result, 
+                  average=average_meter.average()))
         if args.test:
             break
     avg = average_meter.average()
@@ -296,13 +286,15 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
             'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
-            'gpu_time': avg.gpu_time, 'data_time': avg.data_time, 'teacher_loss':avg.gt_loss, 'gt_loss':avg.teacher_loss, 'kl':avg.kl})
+            'gpu_time': avg.gpu_time, 'data_time': avg.data_time, 'teacher_loss':avg.gt_loss, 'gt_loss':avg.teacher_loss, 'kl':avg.kl,  'ause':avg.ause, 'ece':avg.ece})
 
 
 def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, write_to_file=True):
     average_meter = AverageMeterStudent()
     model_student.eval() # switch to evaluate mode
     end = time.time()
+    if hasattr(teacher_args, 'data_uncertainty') and teacher_args.data_uncertainty:
+        print("warning: nll and kl loss is not accurate when training with teacher with data uncertainty")
     for i, (input, target) in enumerate(val_loader):
         input, target = input.cuda(), target.cuda()
         torch.cuda.synchronize()
@@ -311,7 +303,16 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
         # compute output
         end = time.time()
         with torch.no_grad():
-            pred_dropout = generate_teacher_predictions(model_teacher, input, n_samples)
+            if not (hasattr(teacher_args, 'data_uncertainty')  and teacher_args.data_uncertainty):
+                pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+                pred_mu_teacher = torch.mean(pred_dropout, 0)
+                pred_std_teacher = torch.std(pred_dropout, 0)
+            else:
+                pred_dropout, pred_dropout_logvar = generate_mcdropout_predictions_w_var(model_teacher, input, n_samples)
+                pred_mu_teacher = torch.mean(pred_dropout, 0)
+                pred_std_teacher = torch.sqrt(torch.var(pred_dropout, 0) + torch.mean(torch.exp(pred_dropout_logvar), dim=0))
+            
+           
             pred_mu, pred_logvar = model_student(input)
             pred_std = torch.exp(0.5*pred_logvar)
             
@@ -319,11 +320,7 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
         gpu_time = time.time() - end
         # measure accuracy and record loss
         result = ResultStudent()
-        result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data)
-
-        pred_mu_teacher = torch.mean(pred_dropout.view(target.size()[0], -1, target.size()[1], target.size()[2], target.size()[3]), 1)
-        pred_std_teacher = torch.std(pred_dropout.view(target.size()[0], -1, target.size()[1], target.size()[2], target.size()[3]), 1)
-
+        result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data, dist=args.criterion)
 
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
@@ -363,7 +360,8 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
                   'Delta1={result.delta1:.3f}({average.delta1:.3f}) '
                   'REL={result.absrel:.3f}({average.absrel:.3f}) '
                   'Lg10={result.lg10:.3f}({average.lg10:.3f}) '
-                  'ause={result.ause:.3f}({average.ause:.3f})'.format(
+                  'ause={result.ause:.3f}({average.ause:.3f})'
+                  'ece={result.ece:.3f}({average.ece:.3f})'.format(
                    i+1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
         if args.test:
             break
@@ -379,6 +377,7 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
         'kl={average.kl:.3f}\n'
         'gt_loss={average.gt_loss:.3f}\n'
         'ause={average.ause:.3f}\n'
+        'ece={average.ece:.3f}\n'
         't_GPU={time:.3f}\n'.format(
         average=avg, time=avg.gpu_time))
 
@@ -389,7 +388,7 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
                 'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
                 'data_time': avg.data_time, 'gpu_time': avg.gpu_time, 
                 'teacher_loss':avg.teacher_loss, 
-                'gt_loss':avg.gt_loss, 'kl':avg.kl, 'ause':avg.ause})
+                'gt_loss':avg.gt_loss, 'kl':avg.kl, 'ause':avg.ause, 'ece': avg.ece})
     return avg, img_merge
 
 if __name__ == '__main__':

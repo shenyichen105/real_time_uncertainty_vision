@@ -63,6 +63,10 @@ def parse_command():
                         help='test or debugg mode')
     parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
                         help='not to use ImageNet pre-trained weights')
+    parser.add_argument('--data_uncertainty', "--du", dest='data_uncertainty', action='store_true',
+                        help='using datauncertainty')
+    parser.add_argument('--warmup', "--wm", dest='warmup', type=int,
+                        help='warmup epochs')
     parser.set_defaults(pretrained=True)
     args = parser.parse_known_args()[0]
     if args.modality == 'rgb' and args.num_samples != 0:
@@ -112,10 +116,10 @@ def get_output_directory_teacher(args):
         output_directory = os.path.join('results', 'test')
     else:
         output_directory = os.path.join('results',
-        '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}.dropout_p={}'.
+        '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}.dropout_p={}.data_uncertainty={}'.
         format(args.data, args.sparsifier, args.num_samples, args.modality, \
             args.arch, args.decoder, args.criterion, args.lr, args.batch_size, \
-            args.pretrained, args.dropout_p))
+            args.pretrained, args.dropout_p, args.data_uncertainty))
     return output_directory
 
 
@@ -155,6 +159,27 @@ def merge_into_row_w_uncertainty(input, depth_target, depth_pred, depth_uncertai
     depth_uncertainty_col = colored_depthmap(depth_uncertainty_cpu, cmap=cmap2)
     img_merge = np.hstack([rgb, depth_target_col, depth_pred_col, depth_uncertainty_col])
     
+    return img_merge
+
+def merge_into_row_w_data_uncertainty(input, depth_target, depth_pred, depth_model_uncertainty, depth_data_uncertainty):
+    rgb = 255 * np.transpose(np.squeeze(input.cpu().numpy()), (1,2,0))
+    depth_target_cpu = np.squeeze(depth_target.cpu().numpy())
+    depth_pred_cpu = np.squeeze(depth_pred.data.cpu().numpy())
+    depth_model_uncertainty_cpu = np.squeeze(depth_model_uncertainty.data.cpu().numpy())
+    depth_data_uncertainty_cpu = np.squeeze(depth_data_uncertainty.data.cpu().numpy())
+    
+    d_min = min(np.min(depth_target_cpu), np.min(depth_pred_cpu))
+    d_max = max(np.max(depth_target_cpu), np.max(depth_pred_cpu))
+
+    depth_target_col = colored_depthmap(depth_target_cpu, d_min, d_max)
+    depth_pred_col = colored_depthmap(depth_pred_cpu, d_min, d_max)
+
+    # d_min = min(np.min(depth_model_uncertainty_cpu), np.min(depth_data_uncertainty_cpu))
+    # d_max = max(np.max(depth_model_uncertainty_cpu), np.max(depth_data_uncertainty_cpu))
+
+    depth_model_uncertainty_col = colored_depthmap(depth_model_uncertainty_cpu, cmap=cmap2)
+    depth_data_uncertainty_col = colored_depthmap(depth_data_uncertainty_cpu, cmap=cmap2)
+    img_merge = np.hstack([rgb, depth_target_col, depth_pred_col, depth_model_uncertainty_col, depth_data_uncertainty_col])
     return img_merge
 
 

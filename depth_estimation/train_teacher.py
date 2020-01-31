@@ -8,9 +8,10 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 cudnn.benchmark = True
 
-from models_dropout import ResNet
-from metrics import AverageMeter, Result
+from models_dropout import ResNet,  ResNetVar
+from metrics import AverageMeter, Result, ResultTeacher, AverageMeterTeacher
 from dataloaders.dense_to_sparse import UniformSampling, SimulatedStereo
+from inference_util import generate_mcdropout_predictions, generate_mcdropout_predictions_w_var
 import criteria
 import utils
 import utils_student
@@ -20,8 +21,8 @@ print(args)
 
 fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
                 'delta1', 'delta2', 'delta3',
-                'data_time', 'gpu_time']
-best_result = Result()
+                'data_time', 'gpu_time', 'ause', 'ece']
+best_result = ResultTeacher()
 best_result.set_to_worst()
 
 def create_data_loaders(args):
@@ -76,27 +77,43 @@ def create_data_loaders(args):
     print("=> data loaders created.")
     return train_loader, val_loader
 
+def perform_evaluation(model_path, mc_samples=25):
+    assert os.path.isfile(model_path), \
+    "=> no best model found at '{}'".format(model_path)
+    print("=> loading best model '{}'".format(model_path))
+    checkpoint = torch.load(model_path)
+    output_directory = os.path.dirname(model_path)
+    args = checkpoint['args']
+    start_epoch = checkpoint['epoch'] + 1
+    best_result = checkpoint['best_result']
+    model = checkpoint['model']
+    print("=> loaded best model (epoch {})".format(checkpoint['epoch']))
+    _, val_loader = create_data_loaders(args)
+    args.evaluate = True
+    avg, _= validate(val_loader, model, checkpoint['epoch'], write_to_file=False, n_sample=mc_samples)
+    result_txt = os.path.join(output_directory, 'result_mc_{}.txt'.format(mc_samples))
+    with open(result_txt, 'w') as txtfile:
+        print('\n*\n'
+        'mc_samples={mc_samples}\n'
+        'epoch={start_epoch}\n'
+        'RMSE={average.rmse:.3f}\n'
+        'MAE={average.mae:.3f}\n'
+        'Delta1={average.delta1:.3f}\n'
+        'REL={average.absrel:.3f}\n'
+        'Lg10={average.lg10:.3f}\n'
+        't_GPU={time:.3f}\n'
+        'ause={average.ause:.3f}\n'
+        'ece={average.ece:.3f}\n'        
+        .format(average=avg, start_epoch=start_epoch,mc_samples=mc_samples,time=avg.gpu_time), file=txtfile)
+    return
+    
 def main():
     global args, best_result, output_directory, train_csv, test_csv
-
     # evaluation mode
     start_epoch = 0
     if args.evaluate:
-        assert os.path.isfile(args.evaluate), \
-        "=> no best model found at '{}'".format(args.evaluate)
-        print("=> loading best model '{}'".format(args.evaluate))
-        checkpoint = torch.load(args.evaluate)
-        output_directory = os.path.dirname(args.evaluate)
-        args = checkpoint['args']
-        start_epoch = checkpoint['epoch'] + 1
-        best_result = checkpoint['best_result']
-        model = checkpoint['model']
-        print("=> loaded best model (epoch {})".format(checkpoint['epoch']))
-        _, val_loader = create_data_loaders(args)
-        args.evaluate = True
-        validate(val_loader, model, checkpoint['epoch'], write_to_file=False)
+        perform_evaluation(args.evaluate)
         return
-
     # optionally resume from a checkpoint
     elif args.resume:
         chkpt_path = args.resume
@@ -119,12 +136,17 @@ def main():
         train_loader, val_loader = create_data_loaders(args)
         print("=> creating Model ({}-{}) ...".format(args.arch, args.decoder))
         in_channels = len(args.modality)
+        if args.data_uncertainty:
+            resnet_arch = ResNetVar
+        else:
+            resnet_arch = ResNet
         if args.arch == 'resnet50':
-            model = ResNet(layers=50, decoder=args.decoder, output_size=train_loader.dataset.output_size,
+            model = resnet_arch(layers=50, decoder=args.decoder, output_size=train_loader.dataset.output_size,
                 in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p)
+            
         elif args.arch == 'resnet18':
-            model = ResNet(layers=18, decoder=args.decoder, output_size=train_loader.dataset.output_size,
-                in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p)
+            model = resnet_arch(layers=18, decoder=args.decoder, output_size=train_loader.dataset.output_size,
+                in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p, output_var=args.data_uncertainty)
         print("=> model created.")
         optimizer = torch.optim.SGD(model.parameters(), args.lr, \
             momentum=args.momentum, weight_decay=args.weight_decay)
@@ -134,9 +156,15 @@ def main():
 
     # define loss function (criterion) and optimizer
     if args.criterion == 'l2':
-        criterion = criteria.MaskedMSELoss().cuda()
+        if args.data_uncertainty:
+            criterion = criteria.GaussianNLLloss().cuda()
+        else:
+            criterion = criteria.MaskedMSELoss().cuda()
     elif args.criterion == 'l1':
-        criterion = criteria.MaskedL1Loss().cuda()
+        if args.data_uncertainty:
+            criterion = criteria.LaplaceNLLloss().cuda()
+        else:
+            criterion = criteria.MaskedL1Loss().cuda()
 
     # create results folder, if not already exists
     output_directory = utils.get_output_directory_teacher(args)
@@ -152,7 +180,7 @@ def main():
             n +=1
             candidate_name = output_directory+"_"+str(n)
         os.makedirs(candidate_name)
-
+        output_directory = candidate_name
     train_csv = os.path.join(output_directory, 'train.csv')
     test_csv = os.path.join(output_directory, 'test.csv')
     best_txt = os.path.join(output_directory, 'best.txt')
@@ -195,6 +223,9 @@ def main():
                 'optimizer' : optimizer,
             }, is_best, epoch, output_directory)
 
+        if args.test:
+            break
+    return output_directory
 
 def train(train_loader, model, criterion, optimizer, epoch):
     average_meter = AverageMeter()
@@ -208,8 +239,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         # compute pred
         end = time.time()
-        pred = model(input)
-        loss = criterion(pred, target)
+        if args.data_uncertainty:
+            pred, pred_logvar = model(input)
+            loss = criterion(pred, pred_logvar, target)
+        else:
+            pred = model(input)
+            loss = criterion(pred, target)
         optimizer.zero_grad()
         loss.backward() # compute gradient and do SGD step
         optimizer.step()
@@ -234,6 +269,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Lg10={result.lg10:.3f}({average.lg10:.3f}) '.format(
                   epoch, i+1, len(train_loader), data_time=data_time,
                   gpu_time=gpu_time, result=result, average=average_meter.average()))
+        if args.test and (i > args.print_freq):
+            break
 
     avg = average_meter.average()
     with open(train_csv, 'a') as csvfile:
@@ -242,19 +279,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
             'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
             'gpu_time': avg.gpu_time, 'data_time': avg.data_time})
 
-def generate_mcdropout_predictions(model, input, n_samples):
-    #naive implementation, can be slow
-    model.apply(utils_student.enable_dropout) #enable dropout in the inference
-    pred_dropout = []
-    for i in range(n_samples):
-        pred = model(input)
-        pred_dropout.append(pred)
-    pred_dropout = torch.cat(pred_dropout, 0).detach()
-    model.apply(utils_student.disable_dropout)
-    return pred_dropout
-
-def validate(val_loader, model, epoch, write_to_file=True):
-    average_meter = AverageMeter()
+def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
+    average_meter = AverageMeterTeacher()
     model.eval() # switch to evaluate mode
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
@@ -266,16 +292,29 @@ def validate(val_loader, model, epoch, write_to_file=True):
         #perform monte carlo dropout
         end = time.time()
         with torch.no_grad():
-            pred_dropout = generate_mcdropout_predictions(model, input, 25)
-            pred_mu = torch.mean(pred_dropout.view(target.size()[0], -1, target.size()[1], target.size()[2], target.size()[3]), 1)
-            pred_std = torch.std(pred_dropout.view(target.size()[0], -1, target.size()[1], target.size()[2], target.size()[3]), 1)
-
+            if args.data_uncertainty:
+                pred_dropout, pred_logvar_dropout = generate_mcdropout_predictions_w_var(model, input, n_sample)
+            else:
+                pred_dropout = generate_mcdropout_predictions(model, input, n_sample)
+            pred_mu = torch.mean(pred_dropout, dim=0)
+            pred_model_var = torch.var(pred_dropout, dim=0)
+            
+            if args.data_uncertainty:
+                pred_data_var = torch.mean(torch.exp(pred_logvar_dropout), dim=0)
+                pred_data_std = torch.sqrt(pred_data_var)
+                pred_var = pred_data_var + pred_model_var
+            else:
+                pred_var = pred_model_var
+            
+            pred_model_std = torch.sqrt(pred_model_var)
+            pred_std = torch.sqrt(pred_var)
+            
         torch.cuda.synchronize()
         gpu_time = time.time() - end
 
         # measure accuracy and record loss
-        result = Result()
-        result.evaluate(pred_mu.data, target.data)
+        result = ResultTeacher()
+        result.mc_evaluate(pred_mu.data, pred_std.data, target.data)
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
 
@@ -294,15 +333,22 @@ def validate(val_loader, model, epoch, write_to_file=True):
                 if args.modality == 'rgbd':
                     img_merge = utils.merge_into_row_with_gt(rgb, depth, target, pred_mu)
                 else:
-                    img_merge = utils.merge_into_row_w_uncertainty(rgb, target, pred_mu, pred_std)
+                    if args.data_uncertainty:
+                        img_merge = utils.merge_into_row_w_data_uncertainty(rgb, target, pred_mu, pred_model_std, pred_data_std)
+                    else:
+                        img_merge = utils.merge_into_row_w_uncertainty(rgb, target, pred_mu, pred_std)
             elif (i < 8*skip) and (i % skip == 0):
                 if args.modality == 'rgbd':
                     row = utils.merge_into_row_with_gt(rgb, depth, target, pred_mu)
                 else:
-                    row = utils.merge_into_row_w_uncertainty(rgb, target, pred_mu, pred_std)
+                    if args.data_uncertainty:
+                        row = utils.merge_into_row_w_data_uncertainty(rgb, target, pred_mu, pred_model_std, pred_data_std)
+                    else:
+                        row = utils.merge_into_row_w_uncertainty(rgb, target, pred_mu, pred_std)
                 img_merge = utils.add_row(img_merge, row)
             elif i == 8*skip:
                 filename = output_directory + '/comparison_' + str(epoch) + '.png'
+                print(filename)
                 utils.save_image(img_merge, filename)
 
         if (i+1) % args.print_freq == 0:
@@ -312,8 +358,14 @@ def validate(val_loader, model, epoch, write_to_file=True):
                   'MAE={result.mae:.2f}({average.mae:.2f}) '
                   'Delta1={result.delta1:.3f}({average.delta1:.3f}) '
                   'REL={result.absrel:.3f}({average.absrel:.3f}) '
-                  'Lg10={result.lg10:.3f}({average.lg10:.3f}) '.format(
+                  'Lg10={result.lg10:.3f}({average.lg10:.3f}) '
+                  'ause={result.ause:.3f}({average.ause:.3f})'
+                  'ece={result.ece:.3f}({average.ece:.3f})'
+                .format(
                    i+1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
+
+        if args.test and (i>args.print_freq):
+            break
 
     avg = average_meter.average()
 
@@ -323,7 +375,10 @@ def validate(val_loader, model, epoch, write_to_file=True):
         'Delta1={average.delta1:.3f}\n'
         'REL={average.absrel:.3f}\n'
         'Lg10={average.lg10:.3f}\n'
-        't_GPU={time:.3f}\n'.format(
+        't_GPU={time:.3f}\n'
+        'ause={average.ause:.3f}\n'
+        'ece={average.ece:.3f}\n'
+        .format(
         average=avg, time=avg.gpu_time))
 
     if write_to_file:
@@ -331,9 +386,11 @@ def validate(val_loader, model, epoch, write_to_file=True):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
                 'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
-                'data_time': avg.data_time, 'gpu_time': avg.gpu_time})
+                'data_time': avg.data_time, 'gpu_time': avg.gpu_time, 'ause': avg.ause, 'ece':avg.ece})
     return avg, img_merge
 
-
 if __name__ == '__main__':
-    main()
+    output_directory = main()
+    model_path = os.path.join(output_directory, 'model_best.pth.tar')
+    perform_evaluation(model_path, mc_samples=50)
+

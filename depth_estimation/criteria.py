@@ -31,7 +31,7 @@ class GaussianNLLloss(nn.Module):
     def __init__(self):
         super(GaussianNLLloss, self).__init__()
 
-    def forward(self, pred_mean, pred_logvar, target, epsilon=1e-7, mask_zero=False):
+    def forward(self, pred_mean, pred_logvar, target, epsilon=1e-7, mask_zero=True):
         valid_mask = (target>0).detach()
         #assume pred is a tensor with two channels: mean and logvar
         #need to know whether to apply mask
@@ -52,7 +52,7 @@ class LaplaceNLLloss(nn.Module):
     def __init__(self):
         super(LaplaceNLLloss, self).__init__()
 
-    def forward(self, pred_mean, pred_logvar, target, epsilon=1e-7, mask_zero=False):
+    def forward(self, pred_mean, pred_logvar, target, epsilon=1e-9, mask_zero=True):
         valid_mask = (target>0).detach()
         #assume pred is a tensor with two channels: mean and logvar
         #need to know whether to apply mask
