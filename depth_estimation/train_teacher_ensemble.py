@@ -11,19 +11,27 @@ cudnn.benchmark = True
 from models_dropout import ResNet,  ResNetVar
 from metrics import AverageMeter, Result, ResultTeacher, AverageMeterTeacher
 from dataloaders.dense_to_sparse import UniformSampling, SimulatedStereo
-from inference_util import generate_mcdropout_predictions, generate_mcdropout_predictions_w_var
+from inference_util import generate_ensemble_predictions, generate_ensemble_predictions_w_var
 import criteria
 import utils
 import utils_student
 
-args = utils.parse_command()
-print(args)
 
-fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
-                'delta1', 'delta2', 'delta3',
-                'data_time', 'gpu_time', 'ause', 'ece']
-best_result = ResultTeacher()
-best_result.set_to_worst()
+def make_output_dir(args):
+    output_directory = utils.get_output_directory_teacher_ensemble(args)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    elif args.test:
+        pass
+    else:
+        n = 1
+        candidate_name = output_directory+"_"+str(n)
+        while os.path.exists(candidate_name):
+            n +=1
+            candidate_name = output_directory+"_"+str(n)
+        os.makedirs(candidate_name)
+        output_directory = candidate_name
+    return output_directory
 
 def create_data_loaders(args):
     # Data loading code
@@ -77,25 +85,28 @@ def create_data_loaders(args):
     print("=> data loaders created.")
     return train_loader, val_loader
 
-def perform_evaluation(model_path, mc_samples=25):
-    assert os.path.isfile(model_path), \
-    "=> no best model found at '{}'".format(model_path)
-    print("=> loading best model '{}'".format(model_path))
-    checkpoint = torch.load(model_path)
-    output_directory = os.path.dirname(model_path)
-    args = checkpoint['args']
-    start_epoch = checkpoint['epoch'] + 1
-    best_result = checkpoint['best_result']
-    model = checkpoint['model']
-    print("=> loaded best model (epoch {})".format(checkpoint['epoch']))
+def perform_evaluation(ensemble_path):
+    global args
+    output_directory = ensemble_path
+    models = []
+    for i in range(args.n_ensemble):
+        model_path = os.path.join(ensemble_path, str(i), "model_best.pth.tar")
+        assert os.path.isfile(model_path), \
+        "=> no best model found at '{}'".format(model_path)
+        print("=> loading best model '{}'".format(model_path))
+        checkpoint = torch.load(model_path)
+        
+        args = checkpoint['args']
+        model = checkpoint['model']
+        models.append(model)
+        print("=> loaded best model {} from ensemble".format(i))
     _, val_loader = create_data_loaders(args)
     args.evaluate = True
-    avg, _= validate(val_loader, model, checkpoint['epoch'], write_to_file=False, n_sample=mc_samples)
-    result_txt = os.path.join(output_directory, 'result_mc_{}.txt'.format(mc_samples))
+    avg, _= validate_ensemble(val_loader, output_directory, models, checkpoint['epoch'])
+    result_txt = os.path.join(output_directory, 'result_ensemble_{}.txt'.format(args.n_ensemble))
     with open(result_txt, 'w') as txtfile:
         print('\n*\n'
-        'mc_samples={mc_samples}\n'
-        'epoch={start_epoch}\n'
+        'ensemble_size={ensemble_size}\n'
         'RMSE={average.rmse:.3f}\n'
         'MAE={average.mae:.3f}\n'
         'Delta1={average.delta1:.3f}\n'
@@ -104,19 +115,17 @@ def perform_evaluation(model_path, mc_samples=25):
         't_GPU={time:.3f}\n'
         'ause={average.ause:.3f}\n'
         'ece={average.ece:.3f}\n'        
-        .format(average=avg, start_epoch=start_epoch,mc_samples=mc_samples,time=avg.gpu_time), file=txtfile)
+        .format(average=avg, ensemble_size=args.n_ensemble,time=avg.gpu_time), file=txtfile)
     return
     
-def main():
-    global args, best_result, output_directory, train_csv, test_csv
+def train_one_model(output_sub_directory, resume=False, resume_model_name=None):
+    global args
     # evaluation mode
+    best_result = Result()
+    best_result.set_to_worst()
     start_epoch = 0
-    if args.evaluate:
-        perform_evaluation(args.evaluate)
-        return
-    # optionally resume from a checkpoint
-    elif args.resume:
-        chkpt_path = args.resume
+    if resume:
+        chkpt_path = os.path.join(output_sub_directory, 'model_best.pth.tar')
         assert os.path.isfile(chkpt_path), \
             "=> no checkpoint found at '{}'".format(chkpt_path)
         print("=> loading checkpoint '{}'".format(chkpt_path))
@@ -126,11 +135,10 @@ def main():
         best_result = checkpoint['best_result']
         model = checkpoint['model']
         optimizer = checkpoint['optimizer']
-        output_directory = os.path.dirname(os.path.abspath(chkpt_path))
+        output_sub_directory = os.path.dirname(os.path.abspath(chkpt_path))
         print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
         train_loader, val_loader = create_data_loaders(args)
         args.resume = True
-
     # create new model
     else:
         train_loader, val_loader = create_data_loaders(args)
@@ -154,6 +162,10 @@ def main():
         # model = torch.nn.DataParallel(model).cuda() # for multi-gpu training
         model = model.cuda()
 
+    train_csv = os.path.join(output_sub_directory, 'train.csv')
+    test_csv = os.path.join(output_sub_directory, 'test.csv')
+    best_txt = os.path.join(output_sub_directory, 'best.txt')
+
     # define loss function (criterion) and optimizer
     if args.criterion == 'l2':
         if args.data_uncertainty:
@@ -166,25 +178,6 @@ def main():
         else:
             criterion = criteria.MaskedL1Loss().cuda()
 
-    # create results folder, if not already exists
-    output_directory = utils.get_output_directory_teacher(args)
-
-    if not os.path.exists(output_directory):
-        os.makedirs(output_directory)
-    elif args.test:
-        pass
-    else:
-        n = 1
-        candidate_name = output_directory+"_"+str(n)
-        while os.path.exists(candidate_name):
-            n +=1
-            candidate_name = output_directory+"_"+str(n)
-        os.makedirs(candidate_name)
-        output_directory = candidate_name
-    train_csv = os.path.join(output_directory, 'train.csv')
-    test_csv = os.path.join(output_directory, 'test.csv')
-    best_txt = os.path.join(output_directory, 'best.txt')
-
     # create new csv files with only header
     if not args.resume:
         with open(train_csv, 'w') as csvfile:
@@ -195,14 +188,16 @@ def main():
             writer.writeheader()
 
     for epoch in range(start_epoch, args.epochs):
-        utils.adjust_learning_rate(optimizer, epoch+1,  args.lr, args.epochs, warmup=args.warmup)
-        train(train_loader, model, criterion, optimizer, epoch) # train for one epoch
+        utils.adjust_learning_rate(optimizer, epoch,  args.lr, args.epochs)
+        train(train_loader, model, criterion, optimizer, epoch, train_csv) # train for one epoch
+        eval_epoch = 1
         if args.data == 'kitti':
-            eval_epoch = 4
-        else:
-            eval_epoch = 1
+            if epoch < 20:
+                eval_epoch = 4 
+            else:
+                eval_epoch = 2
         if ((epoch+1) % eval_epoch == 0) or ((epoch+1) == args.epochs):
-            result, img_merge = validate(val_loader, model, epoch) # evaluate on validation setW
+            result, img_merge = validate(val_loader, model, epoch, output_sub_directory, test_csv) # evaluate on validation setW
             # remember best rmse and save checkpoint
             is_best = result.rmse < best_result.rmse
             if is_best:
@@ -211,7 +206,7 @@ def main():
                     txtfile.write("epoch={}\nmse={:.3f}\nrmse={:.3f}\nabsrel={:.3f}\nlg10={:.3f}\nmae={:.3f}\ndelta1={:.3f}\nt_gpu={:.4f}\n".
                         format(epoch, result.mse, result.rmse, result.absrel, result.lg10, result.mae, result.delta1, result.gpu_time))
                 if img_merge is not None:
-                    img_filename = output_directory + '/comparison_best.png'
+                    img_filename = output_sub_directory + '/comparison_best.png'
                     utils.save_image(img_merge, img_filename)
 
             utils.save_checkpoint({
@@ -221,13 +216,13 @@ def main():
                 'model': model,
                 'best_result': best_result,
                 'optimizer' : optimizer,
-            }, is_best, epoch, output_directory)
+            }, is_best, epoch, output_sub_directory)
 
         if args.test:
             break
-    return output_directory
+    return output_sub_directory
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch, train_csv):
     average_meter = AverageMeter()
     model.train() # switch to train mode
     end = time.time()
@@ -279,9 +274,100 @@ def train(train_loader, model, criterion, optimizer, epoch):
             'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
             'gpu_time': avg.gpu_time, 'data_time': avg.data_time})
 
-def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
-    average_meter = AverageMeterTeacher()
+def validate(val_loader, model, epoch,  output_sub_directory, test_csv, write_to_file=True):
+    average_meter = AverageMeter()
     model.eval() # switch to evaluate mode
+    end = time.time()
+    for i, (input, target) in enumerate(val_loader):
+        input, target = input.cuda(), target.cuda()
+        torch.cuda.synchronize()
+        data_time = time.time() - end
+
+        # compute output
+        end = time.time()
+        with torch.no_grad():
+            if args.data_uncertainty:
+                pred, pred_logvar = model(input)
+            else:
+                pred = model(input)
+
+        torch.cuda.synchronize()
+        gpu_time = time.time() - end
+
+        # measure accuracy and record loss
+        result = Result()
+        result.evaluate(pred.data, target.data)
+        average_meter.update(result, gpu_time, data_time, input.size(0))
+        end = time.time()
+
+        # save 8 images for visualization
+        skip = 50
+        if args.modality == 'd':
+            img_merge = None
+        else:
+            if args.modality == 'rgb':
+                rgb = input
+            elif args.modality == 'rgbd':
+                rgb = input[:,:3,:,:]
+                depth = input[:,3:,:,:]
+
+            if i == 0:
+                if args.modality == 'rgbd':
+                    img_merge = utils.merge_into_row_with_gt(rgb, depth, target, pred)
+                else:
+                    if args.data_uncertainty:
+                        img_merge = utils.merge_into_row_w_uncertainty(rgb, target, pred, torch.exp(0.5*pred_logvar))
+                    else:
+                        img_merge = utils.merge_into_row(rgb, target, pred)
+            elif (i < 8*skip) and (i % skip == 0):
+                if args.modality == 'rgbd':
+                    row = utils.merge_into_row_with_gt(rgb, depth, target, pred)
+                else:
+                    if args.data_uncertainty:
+                        row = utils.merge_into_row_w_uncertainty(rgb, target, pred, torch.exp(0.5*pred_logvar))
+                    else:
+                        row = utils.merge_into_row(rgb, target, pred)
+                img_merge = utils.add_row(img_merge, row)
+            elif i == 8*skip:
+                filename =  output_sub_directory + '/comparison_' + str(epoch) + '.png'
+                utils.save_image(img_merge, filename)
+
+        if (i+1) % args.print_freq == 0:
+            print('Test: [{0}/{1}]\t'
+                  't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
+                  'RMSE={result.rmse:.2f}({average.rmse:.2f}) '
+                  'MAE={result.mae:.2f}({average.mae:.2f}) '
+                  'Delta1={result.delta1:.3f}({average.delta1:.3f}) '
+                  'REL={result.absrel:.3f}({average.absrel:.3f}) '
+                  'Lg10={result.lg10:.3f}({average.lg10:.3f}) '.format(
+                   i+1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
+        
+        if args.test and (i>args.print_freq):
+            break
+
+    avg = average_meter.average()
+    print('\n*\n'
+        'RMSE={average.rmse:.3f}\n'
+        'MAE={average.mae:.3f}\n'
+        'Delta1={average.delta1:.3f}\n'
+        'REL={average.absrel:.3f}\n'
+        'Lg10={average.lg10:.3f}\n'
+        't_GPU={time:.3f}\n'.format(
+        average=avg, time=avg.gpu_time))
+
+    if write_to_file:
+        with open(test_csv, 'a') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
+                'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
+                'data_time': avg.data_time, 'gpu_time': avg.gpu_time})
+    return avg, img_merge
+
+def validate_ensemble(val_loader, output_directory, models, epoch):
+    global args
+    average_meter = AverageMeterTeacher()
+    for model in models:
+        model.eval() # switch to evaluate mode
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
         input, target = input.cuda(), target.cuda()
@@ -293,14 +379,14 @@ def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
         end = time.time()
         with torch.no_grad():
             if args.data_uncertainty:
-                pred_dropout, pred_logvar_dropout = generate_mcdropout_predictions_w_var(model, input, n_sample)
+                pred_all, pred_logvar_all = generate_ensemble_predictions_w_var(models, input)
             else:
-                pred_dropout = generate_mcdropout_predictions(model, input, n_sample)
-            pred_mu = torch.mean(pred_dropout, dim=0)
-            pred_model_var = torch.var(pred_dropout, dim=0)
+                pred_all = generate_ensemble_predictions(models, input)
+            pred_mu = torch.mean(pred_all, dim=0)
+            pred_model_var = torch.var(pred_all, dim=0)
             
             if args.data_uncertainty:
-                pred_data_var = torch.mean(torch.exp(pred_logvar_dropout), dim=0)
+                pred_data_var = torch.mean(torch.exp(pred_logvar_all), dim=0)
                 pred_data_std = torch.sqrt(pred_data_var)
                 pred_var = pred_data_var + pred_model_var
             else:
@@ -380,17 +466,31 @@ def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
         'ece={average.ece:.3f}\n'
         .format(
         average=avg, time=avg.gpu_time))
-
-    if write_to_file:
-        with open(test_csv, 'a') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writerow({'mse': avg.mse, 'rmse': avg.rmse, 'absrel': avg.absrel, 'lg10': avg.lg10,
-                'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
-                'data_time': avg.data_time, 'gpu_time': avg.gpu_time, 'ause': avg.ause, 'ece':avg.ece})
     return avg, img_merge
 
 if __name__ == '__main__':
-    output_directory = main()
-    model_path = os.path.join(output_directory, 'model_best.pth.tar')
-    perform_evaluation(model_path, mc_samples=50)
+    global args, output_directory
+    args = utils.parse_command()
+    print(args)
+
+    fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
+                    'delta1', 'delta2', 'delta3',
+                    'data_time', 'gpu_time', 'ause', 'ece']
+   
+    output_directory = make_output_dir(args)
+    n_ensemble = args.n_ensemble
+    if args.evaluate:
+        perform_evaluation(output_directory)
+    elif args.resume:
+        output_directory = args.resume
+        for i in range(n_ensemble):
+            output_sub_directory = os.path.join(output_directory, str(i))
+            train_one_model(output_sub_directory, resume=True)
+    else:
+        for i in range(n_ensemble):
+            output_sub_directory = os.path.join(output_directory, str(i))
+            if not os.path.exists(output_sub_directory):
+                os.makedirs(output_sub_directory)
+            train_one_model(output_sub_directory)
+        perform_evaluation(output_directory)
 

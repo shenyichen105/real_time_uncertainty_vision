@@ -65,8 +65,10 @@ def parse_command():
                         help='not to use ImageNet pre-trained weights')
     parser.add_argument('--data_uncertainty', "--du", dest='data_uncertainty', action='store_true',
                         help='using datauncertainty')
-    parser.add_argument('--warmup', "--wm", dest='warmup', type=int,
+    parser.add_argument('--warmup', "--wm", dest='warmup', type=int, default=0,
                         help='warmup epochs')
+    parser.add_argument('--n_ensemble', "--es", dest='n_ensemble', type=int, default=5,
+                        help='ensemble size (for train_teacher_ensemble)')
     parser.set_defaults(pretrained=True)
     args = parser.parse_known_args()[0]
     if args.modality == 'rgb' and args.num_samples != 0:
@@ -88,7 +90,7 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
 
-def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9):
+def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=0.9):
     """Sets the learning rate to the initial LR decayed by 10 every 5 epochs"""
     # stages = [7, 18]
     # if epoch <= stages[0]:
@@ -99,9 +101,13 @@ def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9):
     #     lr = lr_init * 0.008
 
     #use polynomial learning rate decay
-    lr = ((1 - epoch/float(max_epoch) ) ** gamma) * lr_init
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+    if epoch < warmup:
+        lr = lr_init  * float(epoch)/warmup
+    else:
+        lr = ((1 - (epoch-warmup)/float(max_epoch-warmup) ) ** gamma) * lr_init
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+    print("current learning rate: {}".format(lr))
 
 def get_output_directory(args):
     output_directory = os.path.join('results',
@@ -122,6 +128,17 @@ def get_output_directory_teacher(args):
             args.pretrained, args.dropout_p, args.data_uncertainty))
     return output_directory
 
+
+def get_output_directory_teacher_ensemble(args):
+    if args.test:
+        output_directory = os.path.join('results', 'test_ensemble')
+    else:
+        output_directory = os.path.join('results',
+        '[ensemble_size={}]{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}.dropout_p={}.data_uncertainty={}'.
+        format(args.n_ensemble, args.data, args.sparsifier, args.num_samples, args.modality, \
+            args.arch, args.decoder, args.criterion, args.lr, args.batch_size, \
+            args.pretrained, args.dropout_p, args.data_uncertainty))
+    return output_directory
 
 def colored_depthmap(depth, d_min=None, d_max=None, cmap=cmap):
     if d_min is None:

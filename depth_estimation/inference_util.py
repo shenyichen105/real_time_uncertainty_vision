@@ -20,7 +20,7 @@ def generate_mcdropout_predictions(model, input, n_samples):
     model.apply(disable_dropout)
     return all_pred
 
-def generate_ensemble_predictions(models, input, n_samples):
+def generate_ensemble_predictions(models, input):
     #naive implementation, can be slow
     all_pred = []
     for model in models:
@@ -29,7 +29,7 @@ def generate_ensemble_predictions(models, input, n_samples):
     all_pred = torch.stack(all_pred)
     return all_pred
 
-def generate_mcdropout_predictions_w_var(models, input, n_samples):
+def generate_mcdropout_predictions_w_var(model, input, n_samples):
     """
     To evaluate teacher with data uncertainty
     """
@@ -45,7 +45,7 @@ def generate_mcdropout_predictions_w_var(models, input, n_samples):
     model.apply(disable_dropout)
     return all_pred_mean, all_pred_logvar
 
-def generate_ensemble_predictions_w_var(models, input, n_samples):
+def generate_ensemble_predictions_w_var(models, input):
     """
     To evaluate teacher with data uncertainty
     """

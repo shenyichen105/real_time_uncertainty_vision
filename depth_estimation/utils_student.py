@@ -57,6 +57,8 @@ def parse_command():
                         help='test or debugg mode')
     parser.add_argument('-c', '--criterion', metavar='LOSS', default='laplace', choices=loss_names,
                         help='loss function: ' + ' | '.join(loss_names) + ' (default: laplace)')
+    parser.add_argument('--warmup', "--wm", dest='warmup', type=int, default=0,
+                        help='warmup epochs')
     parser.set_defaults(pretrained=True)
     parser.set_defaults(use_teacher_weights=True)
     args = parser.parse_known_args()[0]
@@ -78,12 +80,13 @@ def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9, warm_u
     # stages = [12, 25]
     # if epoch == 1:
     #     lr = 0.00005
-    if epoch < warm_up:
-        lr = lr_init  * float(epoch)/warm_up
+    if epoch < warmup:
+        lr = lr_init  * float(epoch)/warmup
     else:
-        lr = ((1 - (epoch-warm_up)/float(max_epoch-warm_up) ) ** gamma) * lr_init
+        lr = ((1 - (epoch-warmup)/float(max_epoch-warmup) ) ** gamma) * lr_init
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
+    print("current learning rate: {}".format(lr))
     # elif epoch <= stages[0] and epoch >=warm_up:
     #     lr = lr_init 
     # elif epoch > stages[0] and epoch <= stages[1]:

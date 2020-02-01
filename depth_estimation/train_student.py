@@ -184,7 +184,7 @@ def main():
             writer.writeheader()
 
     for epoch in range(start_epoch, args.epochs):
-        utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr, args.epochs)
+        utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr, args.epochs, warmup=args.warmup)
         train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=args.n_sample, gt_loss_ratio=args.gr) # train for one epoch
         if teacher_args.data == 'kitti':
             eval_epoch = 3

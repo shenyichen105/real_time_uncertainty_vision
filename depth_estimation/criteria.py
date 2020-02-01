@@ -52,13 +52,13 @@ class LaplaceNLLloss(nn.Module):
     def __init__(self):
         super(LaplaceNLLloss, self).__init__()
 
-    def forward(self, pred_mean, pred_logvar, target, epsilon=1e-9, mask_zero=True):
+    def forward(self, pred_mean, pred_logvar, target, epsilon=1e-7, mask_zero=True):
         valid_mask = (target>0).detach()
         #assume pred is a tensor with two channels: mean and logvar
         #need to know whether to apply mask
         # pred_mean = pred_mean[valid_mask]
         # pred_logvar = pred_logvar[valid_mask]
-        nll = 0.5*pred_logvar + 0.5* math.log(2) + torch.abs(target - pred_mean) /torch.sqrt((0.5 * torch.exp(pred_logvar)))
+        nll = 0.5*pred_logvar + 0.5* math.log(2) + torch.abs(target - pred_mean) * torch.exp(-0.5*pred_logvar) * (2**0.5)
         #nll = ((target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
         # print(pred_var.min())
         # print(nll.mean())
