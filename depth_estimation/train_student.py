@@ -13,7 +13,12 @@ from dataloaders.dense_to_sparse import UniformSampling, SimulatedStereo
 import criteria
 import utils
 import utils_student
-from inference_util import generate_mcdropout_predictions, sample_from_mcdropout_predictions_w_var, generate_mcdropout_predictions_w_var
+from inference_util import (generate_mcdropout_predictions, 
+                            sample_from_mcdropout_predictions_w_var, 
+                            generate_mcdropout_predictions_w_var,
+                            generate_ensemble_predictions, 
+                            sample_from_ensemble_predictions_w_var, 
+                            generate_ensemble_predictions_w_var)
 
 args = utils_student.parse_command()
 print(args)
@@ -83,9 +88,25 @@ def load_teacher(args):
     teacher_args = teacher_model_dict['args']
     return teacher_model, teacher_args
 
+def load_teacher_ensemble(args):
+    ensemble_path = args.teacher
+    paths = [os.path.join(ensemble_path, str(i),  "model_best.pth.tar") for i in range(args.n_sample)]
+    teacher_model_ensemble= []
+    print("ensemble mode: loading models from {}".format(args.teacher))
+    for i, path in enumerate(paths):
+        print('loading model {} '.format(i))
+        model_dict = torch.load(path)
+        model = model_dict["model"]
+        teacher_model_ensemble.append(model)
+        teacher_args = model_dict['args']   
+    return teacher_model_ensemble, teacher_args
+
 def main():
     global args, teacher_args, best_result, output_directory, train_csv, test_csv
-    model_teacher, teacher_args = load_teacher(args)
+    if args.mode =="ensemble":
+        model_teacher, teacher_args = load_teacher_ensemble(args)
+    else:
+        model_teacher, teacher_args = load_teacher(args)
     # evaluation mode
     start_epoch = 0
     if args.evaluate:
@@ -135,7 +156,10 @@ def main():
                 in_channels=in_channels, pretrained=teacher_args.pretrained)
         print("=> model created.")
         if args.use_teacher_weights:
-            model_student.load_state_dict(model_teacher.state_dict(), strict=False)
+            if args.mode == "ensemble":
+                model_student.load_state_dict(model_teacher[0].state_dict(), strict=False)
+            else:   
+                model_student.load_state_dict(model_teacher.state_dict(), strict=False)
         optimizer = torch.optim.SGD(model_student.parameters(), args.lr, \
             momentum=args.momentum, weight_decay=args.weight_decay)
         # model = torch.nn.DataParallel(model).cuda() # for multi-gpu training
@@ -184,7 +208,7 @@ def main():
             writer.writeheader()
 
     for epoch in range(start_epoch, args.epochs):
-        utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr, args.epochs, warmup=args.warmup)
+        utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr, args.epochs, warm_up=args.warm_up)
         train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=args.n_sample, gt_loss_ratio=args.gr) # train for one epoch
         if teacher_args.data == 'kitti':
             eval_epoch = 3
@@ -227,7 +251,10 @@ def expand_output(output, n_sample=5):
 def train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=5, gt_loss_ratio=0.1):
     average_meter = AverageMeterStudent()
     model_student.train() # switch to train mode
-    model_teacher.eval() # switch to eval mode for teacher
+    if args.mode == "ensemble":
+        _ = [model.eval() for model in model_teacher]
+    else:
+        model_teacher.eval() # switch to eval mode for teacher
     
     end = time.time()
     for i, (input, target) in enumerate(train_loader):
@@ -240,9 +267,15 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
         end = time.time()
         with torch.no_grad():
             if hasattr(teacher_args, 'data_uncertainty') and (teacher_args.data_uncertainty):
-                pred_dropout = sample_from_mcdropout_predictions_w_var(model_teacher, input, n_samples, n_data_samples=5, criterion=teacher_args.criterion)
+                if args.mode == "ensemble":
+                    pred_dropout = sample_from_ensemble_predictions_w_var(model_teacher, input, n_data_samples=5, criterion=teacher_args.criterion)
+                else:
+                    pred_dropout = sample_from_mcdropout_predictions_w_var(model_teacher, input, n_samples, n_data_samples=5, criterion=teacher_args.criterion)
             else:
-                pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+                if args.mode == "ensemble":
+                    pred_dropout = generate_ensemble_predictions(model_teacher, input)
+                else:
+                    pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
            
         pred_mu, pred_logvar = model_student(input)
         b,c,h,w =  pred_mu.size()
@@ -304,15 +337,22 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
         end = time.time()
         with torch.no_grad():
             if not (hasattr(teacher_args, 'data_uncertainty')  and teacher_args.data_uncertainty):
-                pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+                if args.mode == "ensemble":
+                    pred_dropout = generate_ensemble_predictions(model_teacher, input)
+                else:
+                    pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+                
                 pred_mu_teacher = torch.mean(pred_dropout, 0)
                 pred_std_teacher = torch.std(pred_dropout, 0)
             else:
-                pred_dropout, pred_dropout_logvar = generate_mcdropout_predictions_w_var(model_teacher, input, n_samples)
+                if args.mode == "ensemble":
+                    pred_dropout, pred_dropout_logvar = generate_ensemble_predictions_w_var(model_teacher, input)
+                else:
+                    pred_dropout, pred_dropout_logvar = generate_mcdropout_predictions_w_var(model_teacher, input, n_samples)
+                
                 pred_mu_teacher = torch.mean(pred_dropout, 0)
                 pred_std_teacher = torch.sqrt(torch.var(pred_dropout, 0) + torch.mean(torch.exp(pred_dropout_logvar), dim=0))
             
-           
             pred_mu, pred_logvar = model_student(input)
             pred_std = torch.exp(0.5*pred_logvar)
             

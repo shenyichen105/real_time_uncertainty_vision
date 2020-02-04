@@ -167,26 +167,29 @@ def main():
             criterion = criteria.MaskedL1Loss().cuda()
 
     # create results folder, if not already exists
-    output_directory = utils.get_output_directory_teacher(args)
-
-    if not os.path.exists(output_directory):
-        os.makedirs(output_directory)
-    elif args.test:
-        pass
-    else:
-        n = 1
-        candidate_name = output_directory+"_"+str(n)
-        while os.path.exists(candidate_name):
-            n +=1
-            candidate_name = output_directory+"_"+str(n)
-        os.makedirs(candidate_name)
-        output_directory = candidate_name
+    if not args.resume:
+        output_directory = utils.get_output_directory_teacher(args)
     train_csv = os.path.join(output_directory, 'train.csv')
     test_csv = os.path.join(output_directory, 'test.csv')
     best_txt = os.path.join(output_directory, 'best.txt')
 
     # create new csv files with only header
     if not args.resume:
+
+        if not os.path.exists(output_directory):
+            os.makedirs(output_directory)
+        elif args.test:
+            pass
+        else:
+            n = 1
+            candidate_name = output_directory+"_"+str(n)
+            while os.path.exists(candidate_name):
+                n +=1
+                candidate_name = output_directory+"_"+str(n)
+            os.makedirs(candidate_name)
+            output_directory = candidate_name
+
+
         with open(train_csv, 'w') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()

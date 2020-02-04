@@ -104,9 +104,14 @@ def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=0
     if epoch < warmup:
         lr = lr_init  * float(epoch)/warmup
     else:
-        lr = ((1 - (epoch-warmup)/float(max_epoch-warmup) ) ** gamma) * lr_init
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
+        lr = lr_init * (0.2 ** (epoch//10))
+    # if epoch < warmup:
+    #     lr = lr_init  * float(epoch)/warmup
+    # else:
+    #     lr = ((1 - (epoch-warmup)/float(max_epoch-warmup) ) ** gamma) * lr_init
+    
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
     print("current learning rate: {}".format(lr))
 
 def get_output_directory(args):

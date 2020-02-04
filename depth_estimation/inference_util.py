@@ -102,7 +102,7 @@ def sample_from_mcdropout_predictions_w_var(model, input, n_mc_samples, n_data_s
     model.apply(disable_dropout)
     return all_samples
 
-def sample_from_ensemble_predictions_w_var(models, input, n_mc_samples, n_data_samples=5, criterion="l1"):
+def sample_from_ensemble_predictions_w_var(models, input, n_data_samples=5, criterion="l1"):
     """
     generating samples from teacher w data uncertainty to train students
     """
