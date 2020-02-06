@@ -26,7 +26,7 @@ class PolynomialLR(_LRScheduler):
 
 class WarmUpLR(_LRScheduler):
     def __init__(
-        self, optimizer, scheduler, mode="linear", warmup_iters=100, gamma=0.2, last_epoch=-1
+        self, optimizer, scheduler, mode="linear", warmup_iters=100, gamma=0.0, last_epoch=-1
     ):
         self.mode = mode
         self.scheduler = scheduler

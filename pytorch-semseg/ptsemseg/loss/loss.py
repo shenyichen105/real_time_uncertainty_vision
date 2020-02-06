@@ -73,16 +73,19 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
     # mean, var are (b, c, h, w ) tensor
     # mask is (b, h, w) tensor
     # assume diagonal convariance matrix
-    
-    pred_var = torch.exp(pred_logvar) + 1e-15
     log_std = 0.5* pred_logvar
-    nll = ((soft_target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
+    nll = ((soft_target - pred_mean) ** 2) * 0.5 * torch.exp(-pred_logvar) + log_std + math.log(math.sqrt(2 * math.pi))
     if weight is not None:
         weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
         nll = nll * weight_tensor
 
-    mask = (gt_target != ignore_index).unsqueeze(1).float()#mask shape: (n,1,h,w)
-    nll = (nll*mask).flatten()
+    mask = (gt_target != ignore_index).unsqueeze(1)#mask shape: (1,n,1,h,w)
+    mask = mask.expand_as(nll)
+    nll = nll[mask]
+    # nll = (nll*mask).flatten()
+
+    #mask = (gt_target != ignore_index)
+    
     if size_average:
         loss = nll.mean()
     else:
@@ -96,9 +99,8 @@ def nll_laplace_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index,
     # print(pred_mean[0,:,0,0])
     # print(pred_logvar[0,:,0,0])
     
-    pred_var = torch.exp(pred_logvar) + 1e-10
     #nll = ((soft_target - pred_mean) ** 2) / (2 * pred_var) + log_std + math.log(math.sqrt(2 * math.pi))
-    nll = 0.5*pred_logvar + 0.5* math.log(2) + torch.abs(soft_target - pred_mean) /torch.sqrt((0.5 * torch.exp(pred_logvar)))
+    nll = 0.5*pred_logvar + 0.5* math.log(2) + torch.abs(soft_target - pred_mean)*torch.exp(-0.5*pred_logvar) * (2**0.5)
     # print(nll[0,:,0,0])
     # print(pred_var[0,:,0,0])
     if weight is not None:

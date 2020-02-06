@@ -25,6 +25,7 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 #orch.backends.cudnn.benchmark = True
 N_SAMPLE = 100
+UNCERTAINTY = "mutual_information"
 
 def inference_student_model(model, images, propagation_mode="gpu", sampling_dist="gaussian"):
     """
@@ -58,9 +59,9 @@ def inference_student_model(model, images, propagation_mode="gpu", sampling_dist
                 raise NotImplementedError("not implemented")
             softmax_output_sampled = nn.Softmax(dim=2)(rand_logistic).permute(0,1,3,4,2)
             entropy = -torch.sum(softmax_output_sampled * torch.log(softmax_output_sampled + 1e-9), dim=-1)/softmax_output_sampled.size()[-1]
-            softmax_var_propagated = torch.var(softmax_output_sampled, dim=1)
-            softmax_mean_propagated = torch.mean(softmax_output_sampled, dim=1)
-            avg_entropy = torch.mean(entropy, dim=1)
+            softmax_var_propagated = torch.var(softmax_output_sampled, dim=0)
+            softmax_mean_propagated = torch.mean(softmax_output_sampled, dim=0)
+            avg_entropy = torch.mean(entropy, dim=0)
 
     return pred, softmax_mean_propagated, softmax_var_propagated, avg_entropy
 
@@ -77,7 +78,7 @@ def calculate_student_agg_var(softmax_var, method="l2"):
 
 def calculate_student_agg_var1d(softmax_var, method="l2"):
     """
-    given a covariance matrix for softmax output calculate the aggregate variance per image
+    given a diagonal of covariance matrix for softmax output calculate the aggregate variance per image
     """
     if method == "l2":
         softmax_var[softmax_var < 1e-50] =0
@@ -94,7 +95,10 @@ def calculate_student_mutual_information1d(softmax_output, avg_entropy):
     mean_entropy = -np.sum(softmax_output * np.log(softmax_output+1e-9), axis=-1)/softmax_output.shape[-1]
     return mean_entropy-avg_entropy
 
+
 def validate(cfg, args):
+    global N_SAMPLE
+    global UNCERTAINTY
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -169,15 +173,26 @@ def validate(cfg, args):
         pred = pred.cpu().numpy()
         softmax_output = softmax_output.cpu().numpy()
         softmax_var_propagated = softmax_var_propagated.data.cpu().numpy()
+       
 
         if args.propagate_mode == "gpu":
             #error propagation: using  norm of the covariance matrix as uncertainty
+            UNCERTAINTY = "var_norm"
             agg_uncertainty = calculate_student_agg_var(softmax_var_propagated)
         elif args.propagate_mode == "sample":
-            #error propagation: using mutual information as uncertainty 
-            #agg_uncertainty = calculate_student_agg_var1d(softmax_var_propagated)
-            avg_entropy = avg_entropy.cpu().numpy()
-            agg_uncertainty =  calculate_student_mutual_information1d(softmax_output, avg_entropy)
+            if UNCERTAINTY == "var_std":
+                #error propagation: using mutual information as uncertainty 
+                agg_uncertainty = calculate_student_agg_var1d(softmax_var_propagated)
+            elif UNCERTAINTY == "entropy":
+                agg_uncertainty = avg_entropy
+            #avg_entropy = avg_entropy.cpu().numpy()
+            elif UNCERTAINTY == "mutual_information":
+                avg_entropy = avg_entropy.cpu().numpy()
+                agg_uncertainty =  calculate_student_mutual_information1d(softmax_output, avg_entropy)
+            else:
+                raise NotImplementedError
+        else:
+            raise NotImplementedError
         # pred = outputs.data.max(1)[1].cpu().numpy()
         gt = labels.numpy()
 
@@ -213,11 +228,13 @@ def validate(cfg, args):
             write_mode = "w"
         
         with open(result_file, write_mode) as f:
-            string = "\nstudent_folder: {} gt_ratio={} n_sample={} use_teacher_weights={}"\
+            string = "\nstudent_folder: {} gt_ratio={} n_sample={} use_teacher_weights={} propagation_method={} uncertainty={}"\
                         .format(os.path.dirname(args.model_path), 
                             cfg['training']['gt_ratio'],
                             cfg['training']['n_sample'],
-                            cfg['training']['use_teacher_weights'])
+                            cfg['training']['use_teacher_weights'],
+                            args.propagate_mode,
+                            UNCERTAINTY)
             print(string, file=f)
             print(" ", file=f)
             for k, v in score.items():

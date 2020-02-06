@@ -69,6 +69,8 @@ class runningUncertaintyScore(object):
         self.label_true = np.array([])
         self.label_pred = np.array([])
         self.conf = np.array([])
+        #self.ause = 0
+        #self.auc_miss = 0 
 
     def _calculate_brier_score(self, label_true, softmax_output):
         """
@@ -173,6 +175,8 @@ class runningUncertaintyScore(object):
         #ause = self.ause
         #auc_miss = self.auc_miss
         ece = self.get_caliberation_errors(self.label_true, self.label_pred, self.conf)
+        #ause = self.ause
+        #auc_miss = self.auc_miss
         ause = self._calculate_ause(self.uncertainty, self.brier_score)
         auc_miss = self._calculate_auc_misdetection(self.label_true, self.label_pred, self.uncertainty)
         #uc_mean = self.uncertainty.mean()
