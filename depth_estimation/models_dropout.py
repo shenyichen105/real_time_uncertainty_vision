@@ -180,6 +180,7 @@ class ResNet(nn.Module):
             weights_init(self.bn1)
 
         self.output_size = output_size
+        # self.output_var = output_var
 
         self.relu = pretrained_model._modules['relu']
         self.dropout1 = pretrained_model._modules['dropout1']
@@ -208,6 +209,10 @@ class ResNet(nn.Module):
         #self.dropout3 = nn.Dropout(p=self.dropout_p)
         self.bilinear = nn.Upsample(size=self.output_size, mode='bilinear', align_corners=True)
 
+        # if self.output_var:
+        #     self.conv3_2 = nn.Conv2d(num_channels//32,1,kernel_size=3,stride=1,padding=1,bias=False)
+        #     self.bilinear2 = nn.Upsample(size=self.output_size, mode='bilinear', align_corners=True)
+
         # weight init
         self.conv2.apply(weights_init)
         self.bn2.apply(weights_init)
@@ -232,17 +237,25 @@ class ResNet(nn.Module):
 
         # decoder
         x = self.decoder(x)
+
+        # if self.output_var:
+        #     x_mean = self.conv3(x)
+        #     x_logvar = self.conv3_2(x)
+        #     #x = self.dropout3(x)
+        #     mean = self.bilinear(x_mean)
+        #     logvar = self.bilinear2(x_logvar)
+        #     return mean, logvar
+        # else:   
         x = self.conv3(x)
         #x = self.dropout3(x)
         x = self.bilinear(x)
-
         return x
 
-class ResNetStudent(ResNet):
+class ResNetVar(ResNet):
     def __init__(self, layers, decoder, output_size, dropout_p=0.0, in_channels=3, pretrained=True):
         if layers not in [18, 34, 50, 101, 152]:
             raise RuntimeError('Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
-        super(ResNetStudent, self).__init__(layers, decoder, output_size, dropout_p=dropout_p, in_channels=in_channels, pretrained=True)
+        super(ResNetVar, self).__init__(layers, decoder, output_size, dropout_p=dropout_p, in_channels=in_channels, pretrained=True)
         # define number of intermediate channels
         if layers <= 34:
             num_channels = 512
@@ -273,6 +286,8 @@ class ResNetStudent(ResNet):
         #x = self.dropout3(x)
         mean = self.bilinear(x_mean)
         logvar = self.bilinear(x_logvar)
+
+
         return mean, logvar
 
 if __name__ == "__main__":
