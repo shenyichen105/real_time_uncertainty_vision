@@ -217,10 +217,10 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
             with torch.no_grad():
                 if data_uncertainty:
                     n_logits_sample = student_cfg["training"]['n_logits_sample']
-                    n_total_sample = n_logits_sample*n_sample
+                    n_total_sample = n_logits_sample * n_sample
                 else:
                     n_total_sample = n_sample
-                    n_logits_sample = 1 #no logits will be sampled
+                    n_logits_sample = 0 #no logits will be sampled
                 if mode == "mc":
                     soft_labels = sample_from_teacher(teacher_model, images,\
                                             n_sample=n_sample, \
@@ -301,7 +301,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
                 val_loss_meter.reset()
                 running_metrics_val.reset()
 
-                if (score["Mean IoU : \t"] >= best_iou) and ((i + 1) > (student_cfg["training"]["train_iters"]/3.0)):
+                if (score["Mean IoU : \t"] >= best_iou) and ((i + 1) > (student_cfg["training"]["train_iters"]/2.0)):
                     best_iou = score["Mean IoU : \t"]
                     best_iter = i+1
                     state = {
@@ -365,7 +365,7 @@ if __name__ == "__main__":
     with open(teacher_config_path) as fp:
         teacher_cfg = yaml.load(fp)
 
-    run_id = int(run_id[:5])
+    run_id = int(run_id.split("_")[0])
     if args.test:
         student_run_id = "test"
     else:

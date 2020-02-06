@@ -24,17 +24,30 @@ def sample_gaussian_logits(logits_mean, logits_logvar, n_sample):
     sample logits from a gaussain prior 
     rand tensor shape (n,m, c, h, w) m is the # of samples per data point
     """
-    rand_tensor =  torch.randn( n_sample, logits_mean.size(0), logits_mean.size(1), 
+    rand_tensor =  torch.randn(n_sample, logits_mean.size(0), logits_mean.size(1), 
                 logits_mean.size(2), logits_mean.size(3), device=logits_mean.device)
     sampled_logits = rand_tensor * torch.exp(0.5*logits_logvar.unsqueeze(0)) \
                     + logits_mean.unsqueeze(0)  
     return sampled_logits
 
+def sample_gaussian_logits_from_var(logits_mean, logits_var, n_sample):
+    """
+    sample logits from a gaussain prior using var instead of logvar
+    rand tensor shape (n,m, c, h, w) m is the # of samples per data point
+    """
+    rand_tensor =  torch.randn(n_sample, logits_mean.size(0), logits_mean.size(1), 
+                logits_mean.size(2), logits_mean.size(3), device=logits_mean.device)
+    sampled_logits = rand_tensor * (torch.sqrt(logits_var.unsqueeze(0))) \
+                    + logits_mean.unsqueeze(0)  
+    return sampled_logits
 
 def sample_laplace_logits(logits_mean, logits_logvar, n_sample):
     """
+    ------------this is outdated and need work. not up to date---------------
+
     sample logits from a laplace prior 
     rand tensor shape (n,m, c, h, w) m is the # of samples per data point
+    
     """
     rand_tensor = torch.empty(n_sample, logits_mean.size(0),logits_mean.size(1), 
                 logits_mean.size(2), logits_mean.size(3), dtype=logits_mean.dtype,
@@ -51,20 +64,31 @@ def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False
     with torch.no_grad():
         teacher_model.apply(enable_dropout)
         all_samples = []
+        all_var = []
         for i in range(n_sample):
             if data_uncertainty:
                 teacher_mean, teacher_logvar = teacher_model(input)
-                n, c, h, w = teacher_mean.size()
-                sampled_logits = sample_gaussian_logits(teacher_mean, teacher_logvar, n_sample=n_logits_sample)
-                all_samples.append(sampled_logits.view(-1, c, h, w))
+            #     n, c, h, w = teacher_mean.size()
+                #sample data uncertainty from (0, avg_var)
+            #     all_samples.append(sampled_logits.view(-1, c, h, w))
+                all_var.append(torch.exp(teacher_logvar))
+                all_samples.append(teacher_mean)
             else:
                 all_samples.append(teacher_model(input))
-        all_samples = torch.cat(all_samples, 0)
+        if data_uncertainty:
+            #adding samples sampled from the data uncertainty distribution
+            avg_var= torch.stack(all_var).mean(0)
+            n, c, h, w = avg_var.size()
+            sampled_data_uncertainty = sample_gaussian_logits_from_var(avg_var.new_zeros(avg_var.size()), avg_var, n_sample=n_logits_sample * n_sample).view(n_logits_sample, -1, c, h, w)
+            all_samples = torch.cat(all_samples, 0).unsqueeze(0)+ sampled_data_uncertainty
+            all_samples = all_samples.view(-1, c, h, w)
+        else:  
+            all_samples = torch.cat(all_samples, 0)
         teacher_model.apply(disable_dropout)
         return all_samples
     
 
-def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False, n_logits_sample=10):
+def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False, n_logits_sample=5):
     #ensemble teacher's predictions
     #return an output of [n_sample*batch_size, w, h] and expanded input
     assert isinstance(teacher_ensemble, list) == True, \
@@ -72,16 +96,27 @@ def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False
     with torch.no_grad():
         n_models = len(teacher_ensemble)
         all_samples = []
+        all_var = []
         for i in range(n_models):
             teacher_model = teacher_ensemble[i]
             if data_uncertainty:
                 teacher_mean, teacher_logvar = teacher_model(input)
-                n, c, h, w = teacher_mean.size()
-                sampled_logits = sample_gaussian_logits(teacher_mean, teacher_logvar, n_sample=n_logits_sample)
-                all_samples.append(sampled_logits.view(-1, c, h, w))
+                # n, c, h, w = teacher_mean.size()
+                # sampled_logits = sample_gaussian_logits(teacher_mean, teacher_logvar, n_sample=n_logits_sample)
+                # all_samples.append(sampled_logits.view(-1, c, h, w))
+                all_var.append(torch.exp(teacher_logvar))
+                all_samples.append(teacher_mean)
             else:
                 all_samples.append(teacher_model(input))
-        all_samples = torch.cat(all_samples, 0)
+        if data_uncertainty:
+            #adding samples sampled from the data uncertainty distribution
+            avg_var = torch.stack(all_var).mean(0)
+            n, c, h, w = avg_var.size()
+            sampled_data_uncertainty = sample_gaussian_logits_from_var(avg_var.new_zeros(avg_var.size()), avg_var, n_sample=n_logits_sample * len(models)).view(n_logits_sample, -1, c, h, w)
+            all_samples = torch.cat(all_samples, 0).unsqueeze(0)+ sampled_data_uncertainty
+            all_samples = all_samples.view(-1, c, h, w)
+        else:
+            all_samples = torch.cat(all_samples, 0)
         return all_samples
 
 def mc_inference(model, input, n_samples=100, data_uncertainty=False):

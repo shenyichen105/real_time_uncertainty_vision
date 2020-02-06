@@ -13,9 +13,6 @@ from ptsemseg.utils import get_logger
 import itertools
 
 
-
-
-
 parser = argparse.ArgumentParser(description="config")
 parser.add_argument(
     "--template_cfg",
@@ -47,11 +44,15 @@ parser.add_argument(
 args = parser.parse_args()
 
 if args.mode == "ensemble":
-    gt_ratio = [0.0, 1.0]
-    n_sample = [5]
+    gt_ratio = [1.0]
+    n_sample = [5,8]
+    #n_logits_sample = [5]
 else:
-    gt_ratio = [0.0, 1.0]
-    n_sample = [2,5,8]
+    gt_ratio = [1.0]
+    n_sample = [5,8]
+    #gt_ratio = [0.0]
+    #n_sample = [2]
+    #n_logits_sample = [10]
 
 
 with open(args.template_cfg) as fp:
@@ -65,7 +66,7 @@ elif args.mode == "ensemble":
     student_cfg['training']['teacher_ensemble_folder'] = teacher_run_folder
 
 pf, run_id = os.path.split(teacher_run_folder)
-run_id = int(run_id[:5])
+run_id = int(run_id.split("_")[0])
 _, cfg_name = os.path.split(pf)
 teacher_config_path = os.path.join(teacher_run_folder, cfg_name + ".yml")
 
