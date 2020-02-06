@@ -169,6 +169,7 @@ def main():
     # create results folder, if not already exists
     if not args.resume:
         output_directory = utils.get_output_directory_teacher(args)
+
     train_csv = os.path.join(output_directory, 'train.csv')
     test_csv = os.path.join(output_directory, 'test.csv')
     best_txt = os.path.join(output_directory, 'best.txt')
@@ -188,7 +189,10 @@ def main():
                 candidate_name = output_directory+"_"+str(n)
             os.makedirs(candidate_name)
             output_directory = candidate_name
-
+        
+        train_csv = os.path.join(output_directory, 'train.csv')
+        test_csv = os.path.join(output_directory, 'test.csv')
+        best_txt = os.path.join(output_directory, 'best.txt')
 
         with open(train_csv, 'w') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)

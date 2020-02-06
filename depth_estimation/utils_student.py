@@ -29,7 +29,7 @@ def parse_command():
                         help='decoder: ' + ' | '.join(decoder_names) + ' (default: upproj)')
     parser.add_argument('-j', '--workers', default=10, type=int, metavar='N',
                         help='number of data loading workers (default: 10)')
-    parser.add_argument('--epochs', default=30, type=int, metavar='N',
+    parser.add_argument('--epochs', default=40, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('-b', '--batch-size', default=4, type=int, help='mini-batch size (default: 8)')
     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
@@ -82,17 +82,17 @@ def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, gamma=0.9, warm_u
     # stages = [12, 25]
     # if epoch == 1:
     #     lr = 0.00005
-    # if epoch < warmup:
-    #     lr = lr_init  * float(epoch)/warmup
-    # else:
-    #     lr = ((1 - (epoch-warmup)/float(max_epoch-warmup) ) ** gamma) * lr_init
-    #     for param_group in optimizer.param_groups:
-    #         param_group['lr'] = lr
-
     if epoch < warm_up:
         lr = lr_init  * float(epoch)/warm_up
     else:
-        lr = lr_init * (0.2 ** (np.floor(epoch/10)))
+        lr = ((1 - (epoch-warm_up-1)/float(max_epoch-warm_up)) ** gamma) * lr_init
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+
+    # if epoch < warm_up:
+    #     lr = lr_init  * float(epoch)/warm_up
+    # else:
+    #     lr = lr_init * (0.2 ** (np.floor(epoch/10)))
     
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr

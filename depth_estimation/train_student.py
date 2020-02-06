@@ -268,18 +268,18 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
         with torch.no_grad():
             if hasattr(teacher_args, 'data_uncertainty') and (teacher_args.data_uncertainty):
                 if args.mode == "ensemble":
-                    pred_dropout = sample_from_ensemble_predictions_w_var(model_teacher, input, n_data_samples=5, criterion=teacher_args.criterion)
+                    all_pred = sample_from_ensemble_predictions_w_var(model_teacher, input, n_data_samples=5, criterion=teacher_args.criterion)
                 else:
-                    pred_dropout = sample_from_mcdropout_predictions_w_var(model_teacher, input, n_samples, n_data_samples=5, criterion=teacher_args.criterion)
+                    all_pred = sample_from_mcdropout_predictions_w_var(model_teacher, input, n_samples, n_data_samples=5, criterion=teacher_args.criterion)
             else:
                 if args.mode == "ensemble":
-                    pred_dropout = generate_ensemble_predictions(model_teacher, input)
+                    all_pred = generate_ensemble_predictions(model_teacher, input)
                 else:
-                    pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+                    all_pred = generate_mcdropout_predictions(model_teacher, input, n_samples)
            
         pred_mu, pred_logvar = model_student(input)
         b,c,h,w =  pred_mu.size()
-        nll_teacher = criterion(pred_mu, pred_logvar, pred_dropout, mask_zero=True)
+        nll_teacher = criterion(pred_mu, pred_logvar, all_pred, mask_zero=True)
         gt_loss = gt_criterion(pred_mu, target)
         
         loss = nll_teacher + gt_loss_ratio * gt_loss
@@ -292,7 +292,7 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
 
         # measure accuracy and record loss
         result = ResultStudent()
-        result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data, dist=args.criterion,
+        result.evaluate(pred_mu.data, pred_logvar.data, target.data, all_pred.data, dist=args.criterion,
                         teacher_loss=nll_teacher.data.mean(), gt_loss=gt_loss.data.mean())
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
