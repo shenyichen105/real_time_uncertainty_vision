@@ -112,7 +112,7 @@ def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False
             #adding samples sampled from the data uncertainty distribution
             avg_var = torch.stack(all_var).mean(0)
             n, c, h, w = avg_var.size()
-            sampled_data_uncertainty = sample_gaussian_logits_from_var(avg_var.new_zeros(avg_var.size()), avg_var, n_sample=n_logits_sample * len(models)).view(n_logits_sample, -1, c, h, w)
+            sampled_data_uncertainty = sample_gaussian_logits_from_var(avg_var.new_zeros(avg_var.size()), avg_var, n_sample=n_logits_sample * n_models).view(n_logits_sample, -1, c, h, w)
             all_samples = torch.cat(all_samples, 0).unsqueeze(0)+ sampled_data_uncertainty
             all_samples = all_samples.view(-1, c, h, w)
         else:

@@ -45,7 +45,7 @@ args = parser.parse_args()
 
 if args.mode == "ensemble":
     gt_ratio = [1.0]
-    n_sample = [5,8]
+    n_sample = [8,5]
     #n_logits_sample = [5]
 else:
     gt_ratio = [1.0]

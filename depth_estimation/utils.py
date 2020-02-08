@@ -40,7 +40,7 @@ def parse_command():
                         help='decoder: ' + ' | '.join(decoder_names) + ' (default: upproj)')
     parser.add_argument('-j', '--workers', default=10, type=int, metavar='N',
                         help='number of data loading workers (default: 10)')
-    parser.add_argument('--epochs', default=50, type=int, metavar='N',
+    parser.add_argument('--epochs', default=40, type=int, metavar='N',
                         help='number of total epochs to run (default: 30)')
     parser.add_argument('-c', '--criterion', metavar='LOSS', default='l1', choices=loss_names,
                         help='loss function: ' + ' | '.join(loss_names) + ' (default: l1)')
