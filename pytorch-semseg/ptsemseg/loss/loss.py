@@ -74,7 +74,10 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
     # mask is (b, h, w) tensor
     # assume diagonal convariance matrix
     log_std = 0.5* pred_logvar
-    nll = ((soft_target - pred_mean) ** 2) * 0.5 * torch.exp(-pred_logvar) + log_std + math.log(math.sqrt(2 * math.pi))
+    nll = ((soft_target - pred_mean) ** 2) * 0.5 * (torch.exp(-pred_logvar) + 1e-9) + log_std + math.log(math.sqrt(2 * math.pi))
+    diff_sum = (soft_target - pred_mean)
+    logvar = -pred_logvar
+
     if weight is not None:
         weight_tensor = torch.tensor(weight, dtype = torch.float32).to(soft_target.device).view(-1,1,1)
         nll = nll * weight_tensor
@@ -83,7 +86,10 @@ def nll_gaussian_2d(pred_mean, pred_logvar, soft_target, gt_target, ignore_index
     mask = mask.expand_as(nll)
     nll = nll[mask]
     # nll = (nll*mask).flatten()
-
+    if nll.mean() > 10:
+        print("loss: ", nll.mean())
+        print("sum: ", diff_sum[mask].max())
+        print("logvar:", logvar[mask].min())
     #mask = (gt_target != ignore_index)
     
     if size_average:

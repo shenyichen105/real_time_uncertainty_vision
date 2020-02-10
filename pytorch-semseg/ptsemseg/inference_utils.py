@@ -71,6 +71,7 @@ def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False
             #     n, c, h, w = teacher_mean.size()
                 #sample data uncertainty from (0, avg_var)
             #     all_samples.append(sampled_logits.view(-1, c, h, w))
+                teacher_logvar = torch.clamp(teacher_logvar, max=5)
                 all_var.append(torch.exp(teacher_logvar))
                 all_samples.append(teacher_mean)
             else:
@@ -104,6 +105,7 @@ def sample_from_teacher_ensemble(teacher_ensemble, input, data_uncertainty=False
                 # n, c, h, w = teacher_mean.size()
                 # sampled_logits = sample_gaussian_logits(teacher_mean, teacher_logvar, n_sample=n_logits_sample)
                 # all_samples.append(sampled_logits.view(-1, c, h, w))
+                teacher_logvar = torch.clamp(teacher_logvar, max=5)
                 all_var.append(torch.exp(teacher_logvar))
                 all_samples.append(teacher_mean)
             else:
