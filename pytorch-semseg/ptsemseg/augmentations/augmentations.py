@@ -5,6 +5,7 @@ import numpy as np
 import torchvision.transforms.functional as tf
 
 from PIL import Image, ImageOps, ImageFilter
+import torchvision.transforms as tt
 
 
 class Compose(object):
@@ -53,6 +54,16 @@ class RandomCrop(object):
         y1 = random.randint(0, h - th)
         return (img.crop((x1, y1, x1 + tw, y1 + th)), mask.crop((x1, y1, x1 + tw, y1 + th)))
 
+class ColorJitter(object):
+    def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.hue = hue
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        return tt.ColorJitter(self.brightness, self.contrast, self.saturation, self.hue)(img), mask
 
 class AdjustGamma(object):
     def __init__(self, gamma):
@@ -100,6 +111,7 @@ class AdjustContrast(object):
     def __call__(self, img, mask):
         assert img.size == mask.size
         return tf.adjust_contrast(img, random.uniform(1 - self.cf, 1 + self.cf)), mask
+
 
 
 class CenterCrop(object):

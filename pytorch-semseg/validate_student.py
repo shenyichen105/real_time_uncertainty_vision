@@ -24,7 +24,7 @@ from functools import partial
 pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 #orch.backends.cudnn.benchmark = True
-N_SAMPLE = 100
+N_SAMPLE = 50
 UNCERTAINTY = "mutual_information"
 
 def inference_student_model(model, images, propagation_mode="gpu", sampling_dist="gaussian"):

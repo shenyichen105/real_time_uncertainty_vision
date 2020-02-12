@@ -15,7 +15,8 @@ from ptsemseg.augmentations.augmentations import (
     RandomTranslate,
     CenterCrop,
     Compose,
-    RandomGaussianBlur
+    RandomGaussianBlur,
+    ColorJitter
 )
 
 logger = logging.getLogger("ptsemseg")
@@ -36,6 +37,7 @@ key2aug = {
     "translate": RandomTranslate,
     "ccrop": CenterCrop,
     "gaussianblur": RandomGaussianBlur,
+    "colorjitter": ColorJitter
 }
 
 
@@ -46,6 +48,10 @@ def get_composed_augmentations(aug_dict):
 
     augmentations = []
     for aug_key, aug_param in aug_dict.items():
-        augmentations.append(key2aug[aug_key](aug_param))
+        if isinstance(aug_param, dict):
+            augmentations.append(key2aug[aug_key](**aug_param))
+        else:
+            augmentations.append(key2aug[aug_key](aug_param))
+        print('using {}'.format(aug_key))
         logger.info("Using {} aug with params {}".format(aug_key, aug_param))
     return Compose(augmentations)

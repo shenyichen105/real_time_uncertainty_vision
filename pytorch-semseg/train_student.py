@@ -84,7 +84,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
     torch.cuda.manual_seed(student_cfg.get("seed", seed))
     np.random.seed(student_cfg.get("seed", seed))
     random.seed(student_cfg.get("seed", seed))
-
+    print("using seed {}".format(seed))
     # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -247,6 +247,7 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
             #nll_loss /= float(n_total_sample)
             loss = nll_loss + gt_ratio * gt_loss
             loss.backward()
+            torch.nn.utils.clip_grad_norm(student_model.parameters(), 1)
             optimizer.step()
             scheduler.step()
 

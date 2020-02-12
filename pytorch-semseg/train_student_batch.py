@@ -28,7 +28,6 @@ parser.add_argument(
     type=str,
     help="teacher_run_folder",
 )
-
 parser.add_argument(
     "--mode",
     "-m",
@@ -45,7 +44,7 @@ args = parser.parse_args()
 
 if args.mode == "ensemble":
     gt_ratio = [1.0]
-    n_sample = [5,8]
+    n_sample = [8,5]
     #n_logits_sample = [5]
 else:
     gt_ratio = [1.0]
@@ -92,7 +91,7 @@ for gr, ns in list(itertools.product(gt_ratio, n_sample)):
     logger = get_logger(logdir)
     logger.info("Let the games begin")
 
-    saved_model_path = train(teacher_cfg, cur_cfg, writer, logger, seed=run_id, mode=args.mode)
+    saved_model_path = train(teacher_cfg, cur_cfg, writer, logger, seed=student_run_id, mode=args.mode)
     val_args = SimpleNamespace(config=cur_cfg_path,
                                model_path=saved_model_path, 
                                propagate_mode="gpu",
@@ -100,6 +99,7 @@ for gr, ns in list(itertools.product(gt_ratio, n_sample)):
                                save_results=True,
                                save_results_path=None)
     validate(cur_cfg, val_args)
+
 
 
 
