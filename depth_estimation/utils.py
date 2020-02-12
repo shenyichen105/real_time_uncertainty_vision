@@ -90,7 +90,7 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
 
-def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=0.9):
+def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=1.5):
     """Sets the learning rate to the initial LR decayed by 10 every 5 epochs"""
     # stages = [7, 18]
     # if epoch <= stages[0]:
@@ -106,7 +106,7 @@ def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=0
     # else:
     #     lr = lr_init * (0.2 ** (epoch//10))
     else:
-        lr = ((1 - (epoch-warmup-1)/float(max_epoch-warmup) ) ** gamma) * lr_init
+        lr = ((1 - (epoch-warmup-1)/float(max_epoch-warmup-1) ) ** gamma) * lr_init
     
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr

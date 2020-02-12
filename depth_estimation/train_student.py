@@ -50,7 +50,7 @@ def create_data_loaders(args, teacher_args):
 
         if not args.evaluate:
             train_dataset = NYUDataset(traindir, type='train',
-                modality=teacher_args.modality, sparsifier=sparsifier)
+                modality=teacher_args.modality, sparsifier=sparsifier, add_random=True)
         val_dataset = NYUDataset(valdir, type='val',
             modality=teacher_args.modality, sparsifier=sparsifier)
 
@@ -58,7 +58,7 @@ def create_data_loaders(args, teacher_args):
         from dataloaders.kitti_dataloader import KITTIDataset
         if not args.evaluate:
             train_dataset = KITTIDataset(traindir, type='train',
-                modality=teacher_args.modality, sparsifier=sparsifier)
+                modality=teacher_args.modality, sparsifier=sparsifier, add_random=True)
         val_dataset = KITTIDataset(valdir, type='val',
             modality=teacher_args.modality, sparsifier=sparsifier)
 

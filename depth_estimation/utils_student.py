@@ -29,10 +29,10 @@ def parse_command():
                         help='decoder: ' + ' | '.join(decoder_names) + ' (default: upproj)')
     parser.add_argument('-j', '--workers', default=10, type=int, metavar='N',
                         help='number of data loading workers (default: 10)')
-    parser.add_argument('--epochs', default=40, type=int, metavar='N',
+    parser.add_argument('--epochs', default=30, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
-    parser.add_argument('-b', '--batch-size', default=4, type=int, help='mini-batch size (default: 8)')
-    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
+    parser.add_argument('-b', '--batch-size', default=8, type=int, help='mini-batch size (default: 8)')
+    parser.add_argument('--lr', '--learning-rate', default=0.005, type=float,
                         metavar='LR', help='initial learning rate (default 0.005)')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
@@ -51,7 +51,7 @@ def parse_command():
                         help='evaluate model on validation set')
     parser.add_argument('-n', '--n_sample', default=5, type=int,
                         help='number of teachers predictions to sample per input')
-    parser.add_argument('--gr', '--ratio_gt',default=0.05, type=float,
+    parser.add_argument('--gr', '--ratio_gt',default=1.0, type=float,
                         help='ratio of ground truth nll loss in the total student loss')
     parser.add_argument('--test', dest='test', action='store_true',
                         help='test or debugg mode')
