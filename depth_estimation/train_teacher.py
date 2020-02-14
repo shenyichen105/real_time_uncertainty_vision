@@ -146,7 +146,7 @@ def main():
             
         elif args.arch == 'resnet18':
             model = resnet_arch(layers=18, decoder=args.decoder, output_size=train_loader.dataset.output_size,
-                in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p, output_var=args.data_uncertainty)
+                in_channels=in_channels, pretrained=args.pretrained, dropout_p=args.dropout_p)
         print("=> model created.")
         optimizer = torch.optim.SGD(model.parameters(), args.lr, \
             momentum=args.momentum, weight_decay=args.weight_decay)

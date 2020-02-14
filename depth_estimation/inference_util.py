@@ -136,7 +136,7 @@ def sample_from_mcdropout_predictions_w_var(model, input, n_mc_samples, n_data_s
     model.apply(disable_dropout)
     return all_samples
 
-def sample_from_ensemble_predictions_w_var(models, input, n_data_samples=5, criterion="l1"):
+def sample_from_ensemble_predictions_w_var(models, input, n_data_samples=10, criterion="l1"):
     """
     generating samples from teacher w data uncertainty to train students
     """
@@ -151,7 +151,7 @@ def sample_from_ensemble_predictions_w_var(models, input, n_data_samples=5, crit
         pred_mean, pred_logvar = model(input)
         #samples = sampling_function(pred_mean, pred_logvar, n_samples=n_data_samples)
         all_var.append(torch.exp(pred_logvar)+1e-9)
-        all_samples.append(samples)
+        all_samples.append(pred_mean)
     
     avg_var = torch.stack(all_var).mean(0)
     n, c, h, w = avg_var.size()
