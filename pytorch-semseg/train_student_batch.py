@@ -44,7 +44,7 @@ args = parser.parse_args()
 
 if args.mode == "ensemble":
     gt_ratio = [1.0]
-    n_sample = [8,5]
+    n_sample = [5,8]
     #n_logits_sample = [5]
 else:
     gt_ratio = [1.0]
@@ -79,7 +79,7 @@ for gr, ns in list(itertools.product(gt_ratio, n_sample)):
     print('gt_ratio ={} n_samples ={}'.format(gr, ns))
     random.seed(a=None)
     student_run_id = random.randint(1, 100000)
-    logdir = os.path.join(teacher_run_folder, "test_student_"+str(student_run_id))
+    logdir = os.path.join(teacher_run_folder, "student_"+str(student_run_id))
     writer = SummaryWriter(log_dir=logdir)
     
     _, student_cfg_name = os.path.split(args.template_cfg)
@@ -94,7 +94,7 @@ for gr, ns in list(itertools.product(gt_ratio, n_sample)):
     saved_model_path = train(teacher_cfg, cur_cfg, writer, logger, seed=student_run_id, mode=args.mode)
     val_args = SimpleNamespace(config=cur_cfg_path,
                                model_path=saved_model_path, 
-                               propagate_mode="gpu",
+                               propagate_mode="sample",
                                measure_time=True,
                                save_results=True,
                                save_results_path=None)

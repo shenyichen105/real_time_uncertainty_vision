@@ -9,6 +9,7 @@ from ptsemseg.loader.nyuv2_loader import NYUv2Loader
 from ptsemseg.loader.sunrgbd_loader import SUNRGBDLoader
 from ptsemseg.loader.mapillary_vistas_loader import mapillaryVistasLoader
 from ptsemseg.loader.pascal_voc_aug_loader import pascalVOCAugLoader
+from ptsemseg.loader.camvid_loader_hide_classes import camvidLoaderHideClasses
 
 def get_loader(name):
     """get_loader
@@ -25,4 +26,5 @@ def get_loader(name):
         "sunrgbd": SUNRGBDLoader,
         "vistas": mapillaryVistasLoader,
         "pascalaug":pascalVOCAugLoader,
+        "camvidhide":camvidLoaderHideClasses,
     }[name]

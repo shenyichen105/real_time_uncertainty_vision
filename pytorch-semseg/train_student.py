@@ -42,7 +42,7 @@ def load_teacher_ensemble(teacher_cfg, cfg, n_classes, device):
     #TODO: need to implement random selection of teacher model 
 
     model_file_name = "{}_{}_best_model.pkl".format(teacher_cfg["model"]["arch"], teacher_cfg["data"]["dataset"])
-    paths = [os.path.join(cfg['training']['teacher_ensemble_folder'], str(i), model_file_name)\
+    paths = [os.path.join(cfg['training']['teacher_ensemble_folder'], str(i+4), model_file_name)\
              for i in range(int(cfg["training"]["n_sample"]))]
     ensemble= []
     for path in paths:
@@ -384,7 +384,7 @@ if __name__ == "__main__":
     saved_model_path = train(teacher_cfg, student_cfg, writer, logger, seed=run_id, mode=args.mode)
     val_args = SimpleNamespace(config=args.student_cfg,
                                model_path=saved_model_path, 
-                               propagate_mode="gpu",
+                               propagate_mode="sample",
                                measure_time=True,
                                save_results=True,
                                save_results_path=None)
