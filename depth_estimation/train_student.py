@@ -262,13 +262,12 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
         input, target = input.cuda(), target.cuda()
         torch.cuda.synchronize()
         data_time = time.time() - end
-
-        # compute pred
         end = time.time()
+        # compute pred
         with torch.no_grad():
             if hasattr(teacher_args, 'data_uncertainty') and (teacher_args.data_uncertainty):
                 if args.mode == "ensemble":
-                    all_pred = sample_from_ensemble_predictions_w_var(model_teacher, input, n_data_samples=5, criterion=teacher_args.criterion)
+                    all_pred = sample_from_ensemble_predictions_w_var(model_teacher, input, n_data_samples=25, criterion=teacher_args.criterion)
                 else:
                     all_pred = sample_from_mcdropout_predictions_w_var(model_teacher, input, n_samples, n_data_samples=5, criterion=teacher_args.criterion)
             else:
@@ -322,25 +321,32 @@ def train_student(train_loader, model_student, model_teacher, criterion, gt_crit
             'gpu_time': avg.gpu_time, 'data_time': avg.data_time, 'teacher_loss':avg.gt_loss, 'gt_loss':avg.teacher_loss, 'kl':avg.kl,  'ause':avg.ause, 'ece':avg.ece})
 
 
-def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, write_to_file=True):
+def validate(val_loader, model_student, model_teacher, epoch, n_samples=2, write_to_file=True):
     average_meter = AverageMeterStudent()
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
     model_student.eval() # switch to evaluate mode
-    end = time.time()
+    
+    start_data = time.time()
+
     if hasattr(teacher_args, 'data_uncertainty') and teacher_args.data_uncertainty:
         print("warning: nll and kl loss is not accurate when training with teacher with data uncertainty")
     for i, (input, target) in enumerate(val_loader):
         input, target = input.cuda(), target.cuda()
         torch.cuda.synchronize()
-        data_time = time.time() - end
+        data_time = time.time() - start_data
         
         # compute output
-        end = time.time()
         with torch.no_grad():
             if not (hasattr(teacher_args, 'data_uncertainty')  and teacher_args.data_uncertainty):
                 if args.mode == "ensemble":
                     pred_dropout = generate_ensemble_predictions(model_teacher, input)
                 else:
+                    #end = time.time()
                     pred_dropout = generate_mcdropout_predictions(model_teacher, input, n_samples)
+                    #gpu_time = time.time() - end
+                    #torch.cuda.synchronize()
+                    #print("gpu time:m", gpu_time)
                 
                 pred_mu_teacher = torch.mean(pred_dropout, 0)
                 pred_std_teacher = torch.std(pred_dropout, 0)
@@ -352,18 +358,21 @@ def validate(val_loader, model_student, model_teacher, epoch, n_samples=25, writ
                 
                 pred_mu_teacher = torch.mean(pred_dropout, 0)
                 pred_std_teacher = torch.sqrt(torch.var(pred_dropout, 0) + torch.mean(torch.exp(pred_dropout_logvar), dim=0))
-            
+
+            start.record()
             pred_mu, pred_logvar = model_student(input)
-            pred_std = torch.exp(0.5*pred_logvar)
+            end.record()
             
-        torch.cuda.synchronize()
-        gpu_time = time.time() - end
+            torch.cuda.synchronize()
+            gpu_time = start.elapsed_time(end)/1000
+            
+            pred_std = torch.exp(0.5*pred_logvar)
         # measure accuracy and record loss
         result = ResultStudent()
         result.evaluate(pred_mu.data, pred_logvar.data, target.data, pred_dropout.data, dist=args.criterion)
 
         average_meter.update(result, gpu_time, data_time, input.size(0))
-        end = time.time()
+        #end = time.time()
 
         # save 8 images for visualization
         # TODO create visualization for uncertainty

@@ -69,6 +69,8 @@ def parse_command():
                         help='warmup epochs')
     parser.add_argument('--n_ensemble', "--es", dest='n_ensemble', type=int, default=5,
                         help='ensemble size (for train_teacher_ensemble)')
+    parser.add_argument('--mc_samples', "--mc", dest='mc_samples', type=int, default=5,
+                        help='mc sample size for evaluation')
     parser.set_defaults(pretrained=True)
     args = parser.parse_known_args()[0]
     if args.modality == 'rgb' and args.num_samples != 0:
@@ -90,7 +92,7 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         if os.path.exists(prev_checkpoint_filename):
             os.remove(prev_checkpoint_filename)
 
-def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=1.5):
+def adjust_learning_rate(optimizer, epoch, lr_init, max_epoch, warmup=0, gamma=0.9):
     """Sets the learning rate to the initial LR decayed by 10 every 5 epochs"""
     # stages = [7, 18]
     # if epoch <= stages[0]:

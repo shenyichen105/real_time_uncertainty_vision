@@ -77,7 +77,7 @@ def create_data_loaders(args):
     print("=> data loaders created.")
     return train_loader, val_loader
 
-def perform_evaluation(model_path, mc_samples=25):
+def perform_evaluation(model_path, mc_samples=50):
     assert os.path.isfile(model_path), \
     "=> no best model found at '{}'".format(model_path)
     print("=> loading best model '{}'".format(model_path))
@@ -90,7 +90,7 @@ def perform_evaluation(model_path, mc_samples=25):
     print("=> loaded best model (epoch {})".format(checkpoint['epoch']))
     _, val_loader = create_data_loaders(args)
     args.evaluate = True
-    avg, _= validate(val_loader, model, checkpoint['epoch'], write_to_file=False, n_sample=mc_samples)
+    avg, _= validate(val_loader, model, checkpoint['epoch'], output_directory=output_directory, write_to_file=False, n_sample=mc_samples)
     result_txt = os.path.join(output_directory, 'result_mc_{}.txt'.format(mc_samples))
     with open(result_txt, 'w') as txtfile:
         print('\n*\n'
@@ -112,7 +112,7 @@ def main():
     # evaluation mode
     start_epoch = 0
     if args.evaluate:
-        perform_evaluation(args.evaluate)
+        perform_evaluation(args.evaluate, mc_samples=args.mc_samples)
         return
     # optionally resume from a checkpoint
     elif args.resume:
@@ -209,7 +209,7 @@ def main():
         else:
             eval_epoch = 1
         if ((epoch+1) % eval_epoch == 0) or ((epoch+1) == args.epochs):
-            result, img_merge = validate(val_loader, model, epoch) # evaluate on validation setW
+            result, img_merge = validate(val_loader, model, epoch, output_directory=output_directory) # evaluate on validation setW
             # remember best rmse and save checkpoint
             is_best = result.rmse < best_result.rmse
             if is_best:
@@ -286,23 +286,33 @@ def train(train_loader, model, criterion, optimizer, epoch):
             'mae': avg.mae, 'delta1': avg.delta1, 'delta2': avg.delta2, 'delta3': avg.delta3,
             'gpu_time': avg.gpu_time, 'data_time': avg.data_time})
 
-def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
+def validate(val_loader, model, epoch, output_directory, n_sample=25, write_to_file=True):
     average_meter = AverageMeterTeacher()
     model.eval() # switch to evaluate mode
-    end = time.time()
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    
+    start_data = time.time()
     for i, (input, target) in enumerate(val_loader):
         input, target = input.cuda(), target.cuda()
         torch.cuda.synchronize()
-        data_time = time.time() - end
+        data_time = time.time() - start_data
 
         # compute output
         #perform monte carlo dropout
-        end = time.time()
+        #end = time.time()
         with torch.no_grad():
             if args.data_uncertainty:
+                start.record()
                 pred_dropout, pred_logvar_dropout = generate_mcdropout_predictions_w_var(model, input, n_sample)
+                end.record()
             else:
+                start.record()
                 pred_dropout = generate_mcdropout_predictions(model, input, n_sample)
+                end.record()
+            torch.cuda.synchronize()
+            gpu_time = start.elapsed_time(end)/1000
+            
             pred_mu = torch.mean(pred_dropout, dim=0)
             pred_model_var = torch.var(pred_dropout, dim=0)
             
@@ -316,14 +326,14 @@ def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
             pred_model_std = torch.sqrt(pred_model_var)
             pred_std = torch.sqrt(pred_var)
             
-        torch.cuda.synchronize()
-        gpu_time = time.time() - end
+        #torch.cuda.synchronize()
+        #gpu_time = time.time() - end
 
         # measure accuracy and record loss
         result = ResultTeacher()
         result.mc_evaluate(pred_mu.data, pred_std.data, target.data)
         average_meter.update(result, gpu_time, data_time, input.size(0))
-        end = time.time()
+        #end = time.time()
 
         # save 8 images for visualization
         skip = 50
@@ -398,6 +408,7 @@ def validate(val_loader, model, epoch, n_sample=25, write_to_file=True):
 
 if __name__ == '__main__':
     output_directory = main()
-    model_path = os.path.join(output_directory, 'model_best.pth.tar')
-    perform_evaluation(model_path, mc_samples=50)
+    if not args.evaluate:
+        model_path = os.path.join(output_directory, 'model_best.pth.tar')
+        perform_evaluation(model_path, mc_samples=50)
 

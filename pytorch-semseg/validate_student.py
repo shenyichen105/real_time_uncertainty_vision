@@ -27,7 +27,7 @@ pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 N_SAMPLE = 50
 UNCERTAINTY = "mutual_information"
 
-def inference_student_model(model, images, propagation_mode="gpu", sampling_dist="gaussian"):
+def inference_student_model(model, images, propagation_mode="gpu", sampling_dist="gaussian", n_sample=N_SAMPLE):
     """
     propagation_mode:
                     gpu -> using pytorch to compute jacobian and var propagation
@@ -96,10 +96,7 @@ def calculate_student_mutual_information1d(softmax_output, avg_entropy):
     return mean_entropy-avg_entropy
 
 
-def validate(cfg, args):
-    global N_SAMPLE
-    global UNCERTAINTY
-
+def validate(cfg, args, uncertaity=UNCERTAINTY):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Setup Dataloader
