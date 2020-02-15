@@ -63,6 +63,7 @@ class runningUncertaintyScore(object):
         self.auc_miss = 0
         #TODO add other metrics
         self.count  = 0
+        self.count_auc_valid = 0
 
         #self.brier_score = np.array([])
         self.uncertainty = np.array([]) 
@@ -107,7 +108,10 @@ class runningUncertaintyScore(object):
 
     def _calculate_auc_misdetection(self, label_true, label_pred, uncertainty):
         misdetect = (label_true !=label_pred) 
-        auc = average_precision_score(misdetect, uncertainty)
+        if not np.any(misdetect):
+            auc = -1
+        else:
+            auc = roc_auc_score(misdetect, uncertainty)
         return auc
 
     def _calc_acc(self, y_true, y_pred):
@@ -155,7 +159,11 @@ class runningUncertaintyScore(object):
             sm = sm[idx]
             self.ece = (self.ece * self.count + self.get_caliberation_errors(lt, lp, conf))/float(self.count + 1)
             self.ause = (self.ause * self.count + self.get_ause(lt, lp, uc, sm))/float(self.count + 1)
-            self.auc_miss = (self.auc_miss * self.count + self._calculate_auc_misdetection(lt, lp, uc))/float(self.count + 1)
+            auc_miss = self._calculate_auc_misdetection(lt, lp, uc)
+            
+            if auc_miss != -1:
+                self.auc_miss = (self.auc_miss * self.count_auc_valid + auc_miss)/float(self.count_auc_valid + 1)
+                self.count_auc_valid += 1
             self.count+=1
 
             #self.brier_score = np.concatenate([self.brier_score, self._calculate_brier_score(lt, sm)])
