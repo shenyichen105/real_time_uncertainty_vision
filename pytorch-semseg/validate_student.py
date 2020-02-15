@@ -174,16 +174,16 @@ def validate(cfg, args, uncertaity=UNCERTAINTY):
 
         if args.propagate_mode == "gpu":
             #error propagation: using  norm of the covariance matrix as uncertainty
-            UNCERTAINTY = "var_norm"
+            uncertaity = "var_norm"
             agg_uncertainty = calculate_student_agg_var(softmax_var_propagated)
         elif args.propagate_mode == "sample":
-            if UNCERTAINTY == "var_std":
+            if uncertaity== "var_std":
                 #error propagation: using mutual information as uncertainty 
                 agg_uncertainty = calculate_student_agg_var1d(softmax_var_propagated)
-            elif UNCERTAINTY == "entropy":
+            elif uncertaity == "entropy":
                 agg_uncertainty = avg_entropy
             #avg_entropy = avg_entropy.cpu().numpy()
-            elif UNCERTAINTY == "mutual_information":
+            elif uncertaity == "mutual_information":
                 avg_entropy = avg_entropy.cpu().numpy()
                 agg_uncertainty =  calculate_student_mutual_information1d(softmax_output, avg_entropy)
             else:

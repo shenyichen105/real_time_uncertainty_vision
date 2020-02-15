@@ -192,7 +192,7 @@ class runningUncertaintyScore(object):
             {
                 "Overall ECE using max class score in the softmax:" + self.name + ": \t": ece,
                 "mean AUSE using brier score as oracle:" + self.name + ": \t": ause,
-                "mean AUPRC_misdetect:" + self.name + ": \t": auc_miss,
+                "mean AUC_misdetect:" + self.name + ": \t": auc_miss,
                 #"mean uncertainty": uc_mean
             }
         )
