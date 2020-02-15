@@ -10,6 +10,7 @@ from ptsemseg.loader.sunrgbd_loader import SUNRGBDLoader
 from ptsemseg.loader.mapillary_vistas_loader import mapillaryVistasLoader
 from ptsemseg.loader.pascal_voc_aug_loader import pascalVOCAugLoader
 from ptsemseg.loader.camvid_loader_hide_classes import camvidLoaderHideClasses
+from ptsemseg.loader.cityscapes_camvid_loader import cityscapesCamvidLoader
 
 def get_loader(name):
     """get_loader
@@ -27,4 +28,5 @@ def get_loader(name):
         "vistas": mapillaryVistasLoader,
         "pascalaug":pascalVOCAugLoader,
         "camvidhide":camvidLoaderHideClasses,
+        "cityscapes_camvid":cityscapesCamvidLoader,
     }[name]
