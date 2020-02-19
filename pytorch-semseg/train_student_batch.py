@@ -38,7 +38,6 @@ parser.add_argument(
 )
 #search space
 
-
 #load the template config
 args = parser.parse_args()
 

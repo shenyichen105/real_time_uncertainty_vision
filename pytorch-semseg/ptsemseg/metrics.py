@@ -108,7 +108,7 @@ class runningUncertaintyScore(object):
 
     def _calculate_auc_misdetection(self, label_true, label_pred, uncertainty):
         misdetect = (label_true !=label_pred) 
-        if not np.any(misdetect):
+        if np.all(misdetect) or (not np.any(misdetect)):
             auc = -1
         else:
             auc = roc_auc_score(misdetect, uncertainty)
@@ -119,7 +119,7 @@ class runningUncertaintyScore(object):
         y_pred = y_pred.flatten()
         return (y_true == y_pred).sum()/float(y_pred.shape[0])
 
-    def get_caliberation_errors(self, label_true, label_pred, conf, n_bins=15):
+    def get_caliberation_errors(self, label_true, label_pred, conf, n_bins=30):
         """
         get expected caliberation error for confidence
         """
@@ -135,7 +135,7 @@ class runningUncertaintyScore(object):
             pred_sub = label_pred[subset]
             uncertainty_sub = conf[subset]
             acc = self._calc_acc(true_sub, pred_sub)
-            calib_error += np.abs(acc - conf.mean()) * float(uncertainty_sub.shape[0]) 
+            calib_error += ((acc - uncertainty_sub.mean())**2) * float(uncertainty_sub.shape[0]) 
             #TODO plot acc vs uncertainty curve 
         ece = calib_error/float(conf.shape[0])
         return ece

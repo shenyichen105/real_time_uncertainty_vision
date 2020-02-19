@@ -104,7 +104,7 @@ def validate(cfg, args):
         model = load_model_from_cfg(cfg, args.model_path, n_classes, device)     
     elif args.mode == "ensemble":
         model_file_name = "{}_{}_best_model.pkl".format(cfg["model"]["arch"], cfg["data"]["dataset"])
-        paths = [os.path.join(args.ensemble_folder, str(i), model_file_name) for i in range(int(args.ensemble_size))]
+        paths = [os.path.join(args.ensemble_folder, str(i+4), model_file_name) for i in range(int(args.ensemble_size))]
         model = []
         for path in paths:
             model.append(load_model_from_cfg(cfg, path, n_classes, device))

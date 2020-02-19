@@ -25,7 +25,7 @@ pickle.load = partial(pickle.load, encoding="latin1")
 pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
 #orch.backends.cudnn.benchmark = True
 N_SAMPLE = 50
-UNCERTAINTY = "mutual_information"
+# UNCERTAINTY = "mutual_information"
 
 def inference_student_model(model, images, propagation_mode="gpu", sampling_dist="gaussian", n_sample=N_SAMPLE):
     """
@@ -96,7 +96,7 @@ def calculate_student_mutual_information1d(softmax_output, avg_entropy):
     return mean_entropy-avg_entropy
 
 
-def validate(cfg, args, uncertaity=UNCERTAINTY):
+def validate(cfg, args, uncertaity="mutual_information"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Setup Dataloader
@@ -231,7 +231,7 @@ def validate(cfg, args, uncertaity=UNCERTAINTY):
                             cfg['training']['n_sample'],
                             cfg['training']['use_teacher_weights'],
                             args.propagate_mode,
-                            UNCERTAINTY)
+                            uncertaity)
             print(string, file=f)
             print(" ", file=f)
             for k, v in score.items():
@@ -259,7 +259,7 @@ if __name__ == "__main__":
         "--propagate_mode",
         "-p",
         type=str,
-        default="gpu",
+        default="sample",
         help="mode to propagate the variance from logits space to softmax",
     )
 
@@ -268,6 +268,13 @@ if __name__ == "__main__":
         "-s",
         action="store_true",
         help="save results to a summary file",
+    )
+
+    parser.add_argument(
+        "--uncertainty",
+        "--uc",
+        type=str,
+        default="mutual_information",
     )
 
     parser.add_argument(
@@ -311,4 +318,4 @@ if __name__ == "__main__":
     with open(args.config) as fp:
         cfg = yaml.load(fp)
 
-    validate(cfg, args)
+    validate(cfg, args, uncertaity=args.uncertainty)

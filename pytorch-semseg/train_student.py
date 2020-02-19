@@ -349,6 +349,13 @@ if __name__ == "__main__":
         dest='test', 
         action='store_true'
     )
+
+    parser.add_argument(
+        "--prefix",
+        '-p', 
+        type=str,
+        default= "",
+    )
     args = parser.parse_args()
     with open(args.student_cfg) as fp:
         student_cfg = yaml.load(fp)
@@ -372,7 +379,7 @@ if __name__ == "__main__":
     else:
         student_run_id = random.randint(1, 100000)
     #student_run_id = 998
-    logdir = os.path.join(teacher_run_folder, "student_"+str(student_run_id))
+    logdir = os.path.join(teacher_run_folder, args.prefix + "_"  +"student_"+str(student_run_id))
     writer = SummaryWriter(log_dir=logdir)
 
     print("RUNDIR: {}".format(logdir))
@@ -381,7 +388,7 @@ if __name__ == "__main__":
     logger = get_logger(logdir)
     logger.info("Let the games begin")
 
-    saved_model_path = train(teacher_cfg, student_cfg, writer, logger, seed=run_id, mode=args.mode)
+    saved_model_path = train(teacher_cfg, student_cfg, writer, logger, seed=student_run_id, mode=args.mode)
     val_args = SimpleNamespace(config=args.student_cfg,
                                model_path=saved_model_path, 
                                propagate_mode="sample",
