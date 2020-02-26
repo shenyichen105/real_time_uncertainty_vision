@@ -13,8 +13,9 @@ def generate_mcdropout_predictions(model, input, n_samples):
     #naive implementation, can be slow
     model.apply(enable_dropout) #enable dropout in the inference
     all_pred = []
+    middle_rep = model.forward_to_dropout(input)
     for i in range(n_samples):
-        pred = model(input)
+        pred = model.forward_from_dropout(middle_rep)
         all_pred.append(pred)
     all_pred = torch.stack(all_pred)
     model.apply(disable_dropout)
@@ -36,8 +37,10 @@ def generate_mcdropout_predictions_w_var(model, input, n_samples):
     model.apply(enable_dropout) #enable dropout in the inerence
     all_pred_mean = []
     all_pred_logvar = []
+    middle_rep = model.forward_to_dropout(input)
     for i in range(n_samples):
-        pred_mean, pred_logvar = model(input)
+        pred_mean, pred_logvar = model.forward_from_dropout(middle_rep)
+        #pred_mean, pred_logvar = model(input)
         all_pred_mean.append(pred_mean)
         all_pred_logvar.append(pred_logvar)
     all_pred_mean = torch.stack(all_pred_mean)
@@ -119,8 +122,10 @@ def sample_from_mcdropout_predictions_w_var(model, input, n_mc_samples, n_data_s
         sampling_function = sample_gaussian_from_var
     all_samples = []
     all_var = []
+    middle_rep = model.forward_to_dropout(input)
     for i in range(n_mc_samples):
-        pred_mean, pred_logvar = model(input)
+        #pred_mean, pred_logvar = model(input)
+        pred_mean, pred_logvar = model.forward_from_dropout(middle_rep)
         all_var.append(torch.exp(pred_logvar))
         #samples = sampling_function(pred_mean, pred_logvar, n_samples=n_data_samples)
         all_samples.append(pred_mean)

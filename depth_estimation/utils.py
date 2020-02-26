@@ -65,11 +65,13 @@ def parse_command():
                         help='not to use ImageNet pre-trained weights')
     parser.add_argument('--data_uncertainty', "--du", dest='data_uncertainty', action='store_true',
                         help='using datauncertainty')
+    parser.add_argument('--eval_deterministic', "--ed", dest='eval_deterministic', action='store_true',
+                        help='not evaluating model uncertainty')
     parser.add_argument('--warmup', "--wm", dest='warmup', type=int, default=0,
                         help='warmup epochs')
     parser.add_argument('--n_ensemble', "--es", dest='n_ensemble', type=int, default=5,
                         help='ensemble size (for train_teacher_ensemble)')
-    parser.add_argument('--mc_samples', "--mc", dest='mc_samples', type=int, default=5,
+    parser.add_argument('--mc_samples', "--mc", dest='mc_samples', type=int, default=50,
                         help='mc sample size for evaluation')
     parser.set_defaults(pretrained=True)
     args = parser.parse_known_args()[0]

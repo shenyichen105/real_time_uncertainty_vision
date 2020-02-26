@@ -54,7 +54,7 @@ def calculate_normal_quantile(target, pred_mu, pred_std):
     quantile = dist.cdf(target)
     return quantile
 
-def calculate_ece(pred_mu, pred_std, target, n_bins=15):
+def calculate_ece(pred_mu, pred_std, target, n_bins=30):
     """
     metrics from:
     https://arxiv.org/pdf/1807.00263.pdf
@@ -177,7 +177,6 @@ class ResultTeacher(object):
         self.imae = float(abs_inv_diff.mean())
 
     def mc_evaluate(self, output_mean, output_std, target):
-
         output_mean = output_mean.flatten()
         output_std = output_std.flatten()
         target = target.flatten()
@@ -187,8 +186,8 @@ class ResultTeacher(object):
         output_mean= output_mean[valid_mask]
         output_std =output_std[valid_mask]
 
-        abs_diff = (output_mean - target).abs()
 
+        abs_diff = (output_mean - target).abs()
         self.mse = float((torch.pow(abs_diff, 2)).mean())
         self.rmse = math.sqrt(self.mse)
         self.mae = float(abs_diff.mean())

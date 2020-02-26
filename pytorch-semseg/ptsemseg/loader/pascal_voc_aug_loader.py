@@ -40,6 +40,7 @@ class pascalVOCAugLoader(data.Dataset):
         augmentations=None,
         img_norm=True,
         test_mode=False,
+        return_index=False,
     ):
         self.root = root
         self.sbd_path = sbd_path
@@ -52,7 +53,7 @@ class pascalVOCAugLoader(data.Dataset):
         self.mean = np.array([104.00699, 116.66877, 122.67892])
         self.files = collections.defaultdict(list)
         self.img_size = img_size if isinstance(img_size, tuple) else (img_size, img_size)
-
+        self.return_index = return_index
         if not self.test_mode:
             for split in ["trainaug", "val"]:
                 path = pjoin(self.root, "ImageSets/Segmentation", split + ".txt")
@@ -81,7 +82,10 @@ class pascalVOCAugLoader(data.Dataset):
             im, lbl = self.augmentations(im, lbl)
         if self.is_transform:
             im, lbl = self.transform(im, lbl)
-        return im, lbl
+        if self.return_index:
+            return im, lbl, index
+        else:
+            return im, lbl
 
     def transform(self, img, lbl):
         if self.img_size == ("same", "same"):

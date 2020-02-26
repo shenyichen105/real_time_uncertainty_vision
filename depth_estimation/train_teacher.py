@@ -16,6 +16,7 @@ import criteria
 import utils
 import utils_student
 
+
 args = utils.parse_command()
 print(args)
 
@@ -63,8 +64,13 @@ def create_data_loaders(args):
                            'The dataset must be either of nyudepthv2 or kitti.')
 
     # set batch size to be 1 for validation
+    if args.data == 'kitti':
+        indices = np.random.choice(np.arange(len(val_dataset)),5000)
+        val_sampler = torch.utils.data.SubsetRandomSampler(indices)
+    else:
+        val_sampler = None
     val_loader = torch.utils.data.DataLoader(val_dataset,
-        batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True)
+        batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True, sampler=val_sampler)
 
     # put construction of train loader here, for those who are interested in testing only
     if not args.evaluate:
@@ -77,7 +83,7 @@ def create_data_loaders(args):
     print("=> data loaders created.")
     return train_loader, val_loader
 
-def perform_evaluation(model_path, mc_samples=50):
+def perform_evaluation(model_path, mc_samples=50, eval_deterministic=False):
     assert os.path.isfile(model_path), \
     "=> no best model found at '{}'".format(model_path)
     print("=> loading best model '{}'".format(model_path))
@@ -90,21 +96,27 @@ def perform_evaluation(model_path, mc_samples=50):
     print("=> loaded best model (epoch {})".format(checkpoint['epoch']))
     _, val_loader = create_data_loaders(args)
     args.evaluate = True
+    args.eval_deterministic = eval_deterministic
+    if args.eval_deterministic:
+        mc_samples = 'deterministic'
     avg, _= validate(val_loader, model, checkpoint['epoch'], output_directory=output_directory, write_to_file=False, n_sample=mc_samples)
     result_txt = os.path.join(output_directory, 'result_mc_{}.txt'.format(mc_samples))
+
     with open(result_txt, 'w') as txtfile:
         print('\n*\n'
-        'mc_samples={mc_samples}\n'
-        'epoch={start_epoch}\n'
-        'RMSE={average.rmse:.3f}\n'
-        'MAE={average.mae:.3f}\n'
-        'Delta1={average.delta1:.3f}\n'
-        'REL={average.absrel:.3f}\n'
-        'Lg10={average.lg10:.3f}\n'
-        't_GPU={time:.3f}\n'
-        'ause={average.ause:.3f}\n'
-        'ece={average.ece:.3f}\n'        
-        .format(average=avg, start_epoch=start_epoch,mc_samples=mc_samples,time=avg.gpu_time), file=txtfile)
+            'mc_samples={mc_samples}\n'
+            'epoch={start_epoch}\n'
+            'RMSE={average.rmse:.3f}\n'
+            'MAE={average.mae:.3f}\n'
+            'Delta1={average.delta1:.3f}\n'
+            'Delta2={average.delta2:.3f}\n'
+            'Delta3={average.delta3:.3f}\n'
+            'REL={average.absrel:.3f}\n'
+            'Lg10={average.lg10:.3f}\n'
+            't_GPU={time:.3f}\n'
+            'ause={average.ause:.6f}\n'
+            'ece={average.ece:.6f}\n'  
+            .format(average=avg, start_epoch=start_epoch,mc_samples=mc_samples,time=avg.gpu_time), file=txtfile)
     return
     
 def main():
@@ -112,7 +124,7 @@ def main():
     # evaluation mode
     start_epoch = 0
     if args.evaluate:
-        perform_evaluation(args.evaluate, mc_samples=args.mc_samples)
+        perform_evaluation(args.evaluate, mc_samples=args.mc_samples, eval_deterministic=args.eval_deterministic)
         return
     # optionally resume from a checkpoint
     elif args.resume:
@@ -303,9 +315,14 @@ def validate(val_loader, model, epoch, output_directory, n_sample=25, write_to_f
         #end = time.time()
         with torch.no_grad():
             if args.data_uncertainty:
-                start.record()
-                pred_dropout, pred_logvar_dropout = generate_mcdropout_predictions_w_var(model, input, n_sample)
-                end.record()
+                if args.eval_deterministic:
+                    start.record()
+                    pred_dropout, pred_logvar_dropout = model(input)
+                    end.record()
+                else:
+                    start.record()
+                    pred_dropout, pred_logvar_dropout = generate_mcdropout_predictions_w_var(model, input, n_sample)
+                    end.record()
             else:
                 start.record()
                 pred_dropout = generate_mcdropout_predictions(model, input, n_sample)
@@ -313,18 +330,25 @@ def validate(val_loader, model, epoch, output_directory, n_sample=25, write_to_f
             torch.cuda.synchronize()
             gpu_time = start.elapsed_time(end)/1000
             
-            pred_mu = torch.mean(pred_dropout, dim=0)
-            pred_model_var = torch.var(pred_dropout, dim=0)
-            
-            if args.data_uncertainty:
-                pred_data_var = torch.mean(torch.exp(pred_logvar_dropout), dim=0)
-                pred_data_std = torch.sqrt(pred_data_var)
-                pred_var = pred_data_var + pred_model_var
+            if args.eval_deterministic:
+                pred_mu = pred_dropout
+                pred_var = torch.exp(pred_logvar_dropout)
+                pred_model_std = torch.zeros(pred_var.size()).cuda()
+                pred_data_std = torch.sqrt(pred_var)
+                pred_std = pred_data_std
             else:
-                pred_var = pred_model_var
+                pred_mu = torch.mean(pred_dropout, dim=0)
+                pred_model_var = torch.var(pred_dropout, dim=0)
+                if args.data_uncertainty:
+                    pred_data_var = torch.mean(torch.exp(pred_logvar_dropout), dim=0)
+                    pred_data_std = torch.sqrt(pred_data_var)
+                    pred_var = pred_data_var + pred_model_var
+                else:
+                    
+                    pred_var = pred_model_var
             
-            pred_model_std = torch.sqrt(pred_model_var)
-            pred_std = torch.sqrt(pred_var)
+                pred_model_std = torch.sqrt(pred_model_var)
+                pred_std = torch.sqrt(pred_var)
             
         #torch.cuda.synchronize()
         #gpu_time = time.time() - end
@@ -334,7 +358,6 @@ def validate(val_loader, model, epoch, output_directory, n_sample=25, write_to_f
         result.mc_evaluate(pred_mu.data, pred_std.data, target.data)
         average_meter.update(result, gpu_time, data_time, input.size(0))
         #end = time.time()
-
         # save 8 images for visualization
         skip = 50
         if args.modality == 'd':

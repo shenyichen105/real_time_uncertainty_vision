@@ -29,7 +29,7 @@ fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
 best_result = Result()
 best_result.set_to_worst()
 
-def create_data_loaders(args, teacher_args):
+def create_data_loaders(args, teacher_args, shuffle_val=False):
     # Data loading code
     print("=> creating data loaders ...")
     traindir = os.path.join(os.path.expanduser(teacher_args.datapath), teacher_args.data, 'train')
@@ -67,8 +67,16 @@ def create_data_loaders(args, teacher_args):
                            'The dataset must be either of nyudepthv2 or kitti.')
 
     # set batch size to be 1 for validation
-    val_loader = torch.utils.data.DataLoader(val_dataset,
-        batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True)
+    if teacher_args.data == 'kitti':
+        indices = np.random.choice(np.arange(len(val_dataset)),5000)
+        val_sampler = torch.utils.data.SubsetRandomSampler(indices)
+        val_loader = torch.utils.data.DataLoader(val_dataset,
+            batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True, sampler=val_sampler)
+
+    else:
+        val_sampler = None
+        val_loader = torch.utils.data.DataLoader(val_dataset,
+            batch_size=1, shuffle=shuffle_val, num_workers=args.workers, pin_memory=True, sampler=val_sampler)
 
     # put construction of train loader here, for those who are interested in testing only
     if not args.evaluate:
@@ -122,7 +130,7 @@ def main():
         print("=> loaded best model (epoch {})".format(checkpoint['epoch']))
         _, val_loader = create_data_loaders(args, teacher_args)
         args.evaluate = True
-        validate(val_loader, model_student, model_teacher, checkpoint['epoch'], n_samples=25, write_to_file=False)
+        validate(val_loader, model_student, model_teacher, checkpoint['epoch'], n_samples=1, write_to_file=False)
         return
 
     # optionally resume from a checkpoint
@@ -211,7 +219,7 @@ def main():
         utils_student.adjust_learning_rate(optimizer, epoch+1, args.lr, args.epochs, warm_up=args.warm_up)
         train_student(train_loader, model_student, model_teacher, criterion, gt_criterion, optimizer, epoch, n_samples=args.n_sample, gt_loss_ratio=args.gr) # train for one epoch
         if teacher_args.data == 'kitti':
-            eval_epoch = 3
+            eval_epoch = 2
         else:
             eval_epoch = 1
         if ((epoch+1) % eval_epoch == 0) or ((epoch+1) == args.epochs):

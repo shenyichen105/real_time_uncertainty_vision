@@ -251,6 +251,32 @@ class ResNet(nn.Module):
         x = self.bilinear(x)
         return x
 
+    def forward_to_dropout(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        return x
+
+    def forward_from_dropout(self,x):
+        x = self.dropout1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.conv2(x)
+        x = self.dropout2(x)
+        x = self.bn2(x)
+
+        # decoder
+        x = self.decoder(x)
+        x = self.conv3(x)
+        x = self.bilinear(x)
+
+        return x
+    
+
 class ResNetVar(ResNet):
     def __init__(self, layers, decoder, output_size, dropout_p=0.0, in_channels=3, pretrained=True):
         if layers not in [18, 34, 50, 101, 152]:
@@ -287,8 +313,39 @@ class ResNetVar(ResNet):
         mean = self.bilinear(x_mean)
         logvar = self.bilinear(x_logvar)
 
+        return mean, logvar
+
+    def forward_to_dropout(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        return x
+
+    def forward_from_dropout(self,x):
+        x = self.dropout1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.conv2(x)
+        x = self.dropout2(x)
+        x = self.bn2(x)
+
+        # decoder
+        x = self.decoder(x)
+        x_mean = self.conv3(x)
+        x_logvar = self.conv3_2(x)
+        mean = self.bilinear(x_mean)
+        logvar = self.bilinear(x_logvar)
 
         return mean, logvar
+
+
+
+
+        
 
 if __name__ == "__main__":
     model = ResNetStudent(18, 'deconv2',(228, 304), dropout_p=0.2)

@@ -110,11 +110,13 @@ def perform_evaluation(ensemble_path):
         'RMSE={average.rmse:.3f}\n'
         'MAE={average.mae:.3f}\n'
         'Delta1={average.delta1:.3f}\n'
+        'Delta2={average.delta2:.3f}\n'
+        'Delta3={average.delta3:.3f}\n'
         'REL={average.absrel:.3f}\n'
         'Lg10={average.lg10:.3f}\n'
         't_GPU={time:.3f}\n'
-        'ause={average.ause:.3f}\n'
-        'ece={average.ece:.3f}\n'        
+        'ause={average.ause:.6f}\n'
+        'ece={average.ece:.6f}\n'        
         .format(average=avg, ensemble_size=args.n_ensemble,time=avg.gpu_time), file=txtfile)
     return
     
@@ -476,17 +478,16 @@ if __name__ == '__main__':
     fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
                     'delta1', 'delta2', 'delta3',
                     'data_time', 'gpu_time', 'ause', 'ece']
-   
-    output_directory = make_output_dir(args)
     n_ensemble = args.n_ensemble
     if args.evaluate:
-        perform_evaluation(output_directory)
+        perform_evaluation(args.evaluate)
     elif args.resume:
         output_directory = args.resume
         for i in range(n_ensemble):
             output_sub_directory = os.path.join(output_directory, str(i))
             train_one_model(output_sub_directory, resume=True)
     else:
+        output_directory = make_output_dir(args)
         for i in range(n_ensemble):
             output_sub_directory = os.path.join(output_directory, str(i))
             if not os.path.exists(output_sub_directory):
