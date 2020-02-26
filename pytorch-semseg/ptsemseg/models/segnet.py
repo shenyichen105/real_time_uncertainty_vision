@@ -35,8 +35,8 @@ class segnet(nn.Module):
 
         down1, indices_1, unpool_shape1 = self.down1(inputs)
         down2, indices_2, unpool_shape2 = self.down2(down1)
+        down3, indices_3, unpool_shape3 = self.down3(down2)
         if self.add_dropout:
-            down3, indices_3, unpool_shape3 = self.down3(down2)
             down3 = self.dropout(down3)
             down4, indices_4, unpool_shape4 = self.down4(down3)
             down4 = self.dropout(down4)
@@ -66,6 +66,44 @@ class segnet(nn.Module):
             return up1, up1_logvar
         else:
             return up1
+
+    def forward_to_dropout(self, inputs):
+        down1, indices_1, unpool_shape1 = self.down1(inputs)
+        down2, indices_2, unpool_shape2 = self.down2(down1)
+        down3, indices_3, unpool_shape3 = self.down3(down2)
+
+
+        indices = [indices_1, indices_2, indices_3]
+        unpool_shapes = [unpool_shape1,  unpool_shape2, unpool_shape3]
+        return down3, indices, unpool_shapes
+
+    def forward_from_dropout(self, down3, indices, unpool_shapes):
+        assert self.add_dropout
+
+        indices_1, indices_2, indices_3 = indices
+        unpool_shape1,  unpool_shape2, unpool_shape3 = unpool_shapes
+        
+        down3 = self.dropout(down3)
+        down4, indices_4, unpool_shape4 = self.down4(down3)
+        down4 = self.dropout(down4)
+        down5, indices_5, unpool_shape5 = self.down5(down4)
+        down5 = self.dropout(down5)
+
+        up5 = self.up5(down5, indices_5, unpool_shape5)
+        up5 = self.dropout(up5)
+        up4 = self.up4(up5, indices_4, unpool_shape4)
+        up4 = self.dropout(up4)
+        up3 = self.up3(up4, indices_3, unpool_shape3)
+        up3 = self.dropout(up3)
+        up2 = self.up2(up3, indices_2, unpool_shape2)
+        up1 = self.up1(up2, indices_1, unpool_shape1)
+        
+        if self.output_var:
+            up1_logvar = self.up1_logvar(up2, indices_1, unpool_shape1)
+            return up1, up1_logvar
+        else:
+            return up1 
+
 
     def init_vgg16_params(self, vgg16):
         blocks = [self.down1, self.down2, self.down3, self.down4, self.down5]
