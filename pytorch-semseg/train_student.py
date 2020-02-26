@@ -322,6 +322,17 @@ def train(teacher_cfg, student_cfg, writer, logger, seed, mode="mc"):
                 flag = False
                 logger.info("best iteration: {}".format(best_iter))
                 print("best iteration: {}".format(best_iter))
+                state = {
+                        "epoch": i + 1,
+                        "model_state": student_model.state_dict(),
+                        "optimizer_state": optimizer.state_dict(),
+                        "scheduler_state": scheduler.state_dict(),
+                        "best_iou": best_iou,
+                    }
+                save_path = os.path.join(
+                        writer.file_writer.get_logdir(),
+                        "{}_{}_best_model_last_iter.pkl".format(student_cfg["model"]["arch"], student_cfg["data"]["dataset"]),)
+                torch.save(state, save_path)
                 break
     del teacher_model
     return save_path          
