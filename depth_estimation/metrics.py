@@ -228,6 +228,8 @@ class ResultStudent(object):
         self.data_time, self.gpu_time = 0, 0
         #caliberation and uncertainty 
         self.ause, self.ece = 0,0
+        #save the 
+        self.output_n
 
     def set_to_worst(self):
         self.gt_loss, self.teacher_loss, self.kl =  np.inf, np.inf, np.inf

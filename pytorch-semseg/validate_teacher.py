@@ -33,6 +33,10 @@ def inference_teacher_model(model, images,  mode="mc", data_uncertainty=False, n
         # input needs to be 
         assert isinstance(model, list) == True, "input 'model' needs to be a list for ensemble mode"
         pred_mean, pred_var_sm, all_sm_output = ensemble_inference(model, images, data_uncertainty=data_uncertainty)
+    elif mode =="deterministic":
+        #assert data_uncertainty, "has to have data uncertainty to evalutate an deterministic model"
+        #eqivalent to inference on ensemble of 1 
+        pred_mean, pred_var_sm, all_sm_output = ensemble_inference([model], images, data_uncertainty=data_uncertainty, n_logits_sample=50)
     else:
         raise NotImplementedError("unrecognized mode: "+ str(mode))
 
@@ -100,7 +104,7 @@ def validate(cfg, args):
     
     data_uncertainty = ("output_var" in cfg["model"]) and (cfg["model"]["output_var"])
     
-    if args.mode == "mc":
+    if args.mode == "mc" or args.mode =="deterministic":
         model = load_model_from_cfg(cfg, args.model_path, n_classes, device)     
     elif args.mode == "ensemble":
         model_file_name = "{}_{}_best_model.pkl".format(cfg["model"]["arch"], cfg["data"]["dataset"])
@@ -181,7 +185,7 @@ def validate(cfg, args):
         elif args.mode == "ensemble": 
             result_folder = args.ensemble_folder
             result_file = os.path.join(result_folder, "results.txt")
-        elif args.mode == "mc": 
+        elif args.mode == "mc" or args.mode == "deterministic": 
             result_folder = os.path.dirname(args.model_path)
             result_file = os.path.join(result_folder , "results.txt")
         else:

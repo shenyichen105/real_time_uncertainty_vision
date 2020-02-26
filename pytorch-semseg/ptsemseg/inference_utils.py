@@ -65,9 +65,10 @@ def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False
         teacher_model.apply(enable_dropout)
         all_samples = []
         all_var = []
+        down3, indices, unpool_shapes = teacher_model.forward_to_dropout(input)
         for i in range(n_sample):
             if data_uncertainty:
-                teacher_mean, teacher_logvar = teacher_model(input)
+                teacher_mean, teacher_logvar = teacher_model.forward_from_dropout(down3, indices, unpool_shapes)
             #     n, c, h, w = teacher_mean.size()
                 #sample data uncertainty from (0, avg_var)
             #     all_samples.append(sampled_logits.view(-1, c, h, w))
@@ -75,7 +76,7 @@ def sample_from_teacher(teacher_model, input, n_sample=5, data_uncertainty=False
                 all_var.append(torch.exp(teacher_logvar))
                 all_samples.append(teacher_mean)
             else:
-                all_samples.append(teacher_model(input))
+                all_samples.append(teacher_model.forward_from_dropout(down3, indices, unpool_shapes))
         if data_uncertainty:
             #adding samples sampled from the data uncertainty distribution
             avg_var= torch.stack(all_var).mean(0)
@@ -127,16 +128,22 @@ def mc_inference(model, input, n_samples=100, data_uncertainty=False):
     softmax_func = nn.Softmax(dim=1)
     sm_output = softmax_func(output)
     pred_mean = torch.mean(sm_output,dim=0)
-    pred_var_sm = torch.var(sm_output,dim=0)
+    if sm_output.size()[0] == 1:
+        pred_var_sm = pred_mean * 0
+    else:
+        pred_var_sm = torch.var(sm_output,dim=0)
     return pred_mean, pred_var_sm, sm_output
 
-def ensemble_inference(models, input, data_uncertainty=False):
+def ensemble_inference(models, input, data_uncertainty=False, n_logits_sample=5):
     # models: the ensemble of teacher models with differnent random initialization
-    output = sample_from_teacher_ensemble(models, input, data_uncertainty)
+    output = sample_from_teacher_ensemble(models, input, data_uncertainty, n_logits_sample=n_logits_sample)
     softmax_func = nn.Softmax(dim=1)
     sm_output = softmax_func(output)
     pred_mean = torch.mean(sm_output,dim=0)
-    pred_var_sm = torch.var(sm_output,dim=0)
+    if sm_output.size()[0] == 1:
+        pred_var_sm = pred_mean * 0
+    else:
+        pred_var_sm = torch.var(sm_output,dim=0)
     return pred_mean, pred_var_sm, sm_output
 
 def calculate_softmax_jacobian(softmax_output):
